@@ -12,7 +12,8 @@ final class HttpClient
     public function __construct(
         private readonly string $baseUrl,
         private readonly array $defaultHeaders = [],
-        private readonly int $timeout = 30
+        private readonly int $timeout = 30,
+        private readonly bool $sslVerify = true
     ) {
     }
 
@@ -36,7 +37,7 @@ final class HttpClient
 
         if (array_key_exists('json', $options)) {
             $body = json_encode($options['json'], JSON_THROW_ON_ERROR);
-            $headers['Content-Type'] = 'application/json';
+            $headers = $this->withDefaultHeader($headers, 'Content-Type', 'application/json');
         } elseif (array_key_exists('body', $options)) {
             $body = (string) $options['body'];
         }
@@ -45,6 +46,10 @@ final class HttpClient
 
         if (function_exists('curl_init')) {
             return $this->requestWithCurl($method, $url, $headers, $body);
+        }
+
+        if (str_starts_with($url, 'https://') && !extension_loaded('openssl')) {
+            throw new RuntimeException('HTTPS requests require PHP ext-curl or ext-openssl.');
         }
 
         return $this->requestWithStreams($method, $url, $headers, $body);
@@ -84,6 +89,8 @@ final class HttpClient
             CURLOPT_HEADER => true,
             CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_HTTPHEADER => $this->formatHeaders($headers),
+            CURLOPT_SSL_VERIFYPEER => $this->sslVerify,
+            CURLOPT_SSL_VERIFYHOST => $this->sslVerify ? 2 : 0,
         ]);
 
         if ($body !== null) {
@@ -103,7 +110,7 @@ final class HttpClient
         $responseBody = substr((string) $response, $headerSize);
         curl_close($curl);
 
-        return $this->decodeResponse($status, $responseBody);
+        return $this->decodeResponse($status, $method, $url, $responseBody);
     }
 
     /** @param array<string, string> $headers */
@@ -116,6 +123,11 @@ final class HttpClient
                 'content' => $body ?? '',
                 'timeout' => $this->timeout,
                 'ignore_errors' => true,
+            ],
+            'ssl' => [
+                'verify_peer' => $this->sslVerify,
+                'verify_peer_name' => $this->sslVerify,
+                'allow_self_signed' => !$this->sslVerify,
             ],
         ]);
 
@@ -133,7 +145,7 @@ final class HttpClient
             throw new RuntimeException('HTTP request failed.');
         }
 
-        return $this->decodeResponse($status, $responseBody);
+        return $this->decodeResponse($status, $method, $url, $responseBody);
     }
 
     /** @param array<string, string> $headers */
@@ -152,10 +164,27 @@ final class HttpClient
         return $formatted;
     }
 
-    private function decodeResponse(int $status, string $body): array
+    /**
+     * @param array<string, string> $headers
+     * @return array<string, string>
+     */
+    private function withDefaultHeader(array $headers, string $name, string $value): array
+    {
+        foreach ($headers as $headerName => $_) {
+            if (strcasecmp((string) $headerName, $name) === 0) {
+                return $headers;
+            }
+        }
+
+        $headers[$name] = $value;
+
+        return $headers;
+    }
+
+    private function decodeResponse(int $status, string $method, string $url, string $body): array
     {
         if ($status >= 400) {
-            throw new RuntimeException('HTTP ' . $status . ': ' . $body);
+            throw new HttpException($status, $method, $url, $body);
         }
 
         if (trim($body) === '') {

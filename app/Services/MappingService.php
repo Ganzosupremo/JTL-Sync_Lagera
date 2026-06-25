@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\OrderMapping;
+use App\Support\Config;
 use RuntimeException;
 
 final class MappingService
 {
-    public function __construct(private readonly ?OrderMapping $mappings = null)
+    public function __construct(
+        private readonly ?OrderMapping $mappings = null,
+        private readonly ?PackiyoCustomerResolver $customerResolver = null
+    )
     {
     }
 
@@ -38,33 +42,110 @@ final class MappingService
         }
 
         $jtlOrderNumber = $this->jtlOrderNumber($order);
+        $lineItems = array_map(fn (array $item): array => $this->normalizeLineItem($item), $items);
 
-        return [
+        $attributes = [
+            'number' => $jtlOrderNumber ?? $jtlOrderId,
+            'order_channel_name' => (string) Config::get('packiyo.order_channel_name', 'JTL-Wawi'),
+            'ordered_at' => $this->packiyoDate($this->firstString($order, ['ordered_at', 'created_at', 'date', 'Date', 'orderDate', 'OrderDate', 'creationDate', 'CreationDate'])),
             'external_id' => $jtlOrderId,
-            'order_number' => $jtlOrderNumber ?? $jtlOrderId,
-            'ordered_at' => $this->firstString($order, ['ordered_at', 'created_at', 'date', 'orderDate']),
-            'customer' => $this->normalizeCustomer($order),
-            'shipping_address' => $this->normalizeAddress($this->firstArray($order, ['shipping_address', 'shippingAddress', 'deliveryAddress'])),
-            'billing_address' => $this->normalizeAddress($this->firstArray($order, ['billing_address', 'billingAddress', 'invoiceAddress'])),
-            'line_items' => array_map(fn (array $item): array => $this->normalizeLineItem($item), $items),
-            'metadata' => [
-                'source' => 'jtl',
-                'jtl_order_id' => $jtlOrderId,
-                'jtl_order_number' => $jtlOrderNumber,
+            'shipping' => (float) ($this->firstValue($order, ['shipping', 'Shipping', 'shippingCost', 'ShippingCost', 'fVersand', 'FVersand']) ?? 0),
+            'tax' => (float) ($this->firstValue($order, ['tax', 'Tax', 'taxAmount', 'TaxAmount']) ?? 0),
+            'discount' => (float) ($this->firstValue($order, ['discount', 'Discount', 'discountAmount', 'DiscountAmount']) ?? 0),
+            'shipping_contact_information_data' => $this->packiyoContact(
+                $this->firstArray($order, ['shipping_address', 'shippingAddress', 'ShippingAddress', 'deliveryAddress', 'DeliveryAddress']),
+                $this->normalizeCustomer($order)
+            ),
+            'billing_contact_information_data' => $this->packiyoContact(
+                $this->firstArray($order, ['billing_address', 'billingAddress', 'BillingAddress', 'invoiceAddress', 'InvoiceAddress']),
+                $this->normalizeCustomer($order)
+            ),
+            'order_item_data' => $lineItems,
+            'tags' => 'jtl',
+        ];
+
+        $payload = [
+            'data' => [
+                'type' => 'orders',
+                'attributes' => $attributes,
+                'relationships' => [
+                    'order_items' => [
+                        'data' => array_map(
+                            fn (array $item): array => [
+                                'type' => 'order-items',
+                                'attributes' => $item,
+                            ],
+                            $lineItems
+                        ),
+                    ],
+                ],
             ],
         ];
+
+        $customerResolver = $this->customerResolver();
+        $customerId = $customerResolver->resolveCustomerId($order);
+
+        if ($customerId !== null && $customerId !== '') {
+            $payload['data']['relationships']['customer'] = [
+                'data' => [
+                    'type' => 'customers',
+                    'id' => $customerId,
+                ],
+            ];
+        } elseif ($customerResolver->inactiveCustomerId() !== null) {
+            throw new InactivePackiyoCustomerException(
+                'Packiyo customer ' . $customerResolver->inactiveCustomerId()
+                . ' is inactive in this app. JTL order will not be sent.'
+            );
+        } elseif ((bool) Config::get('packiyo.require_customer_mapping', true)) {
+            throw new RuntimeException(
+                'No Packiyo customer mapping matched this JTL order. Candidates: '
+                . ($customerResolver->describeCandidates($order) ?: 'none')
+            );
+        }
+
+        return $payload;
     }
 
     /** @param array<string, mixed> $order */
     public function jtlOrderId(array $order): ?string
     {
-        return $this->firstString($order, ['jtl_order_id', 'id', 'order_id', 'orderId', 'OrderId', 'kBestellung']);
+        return $this->firstString($order, [
+            'jtl_order_id',
+            'id',
+            'Id',
+            'ID',
+            'order_id',
+            'orderId',
+            'OrderId',
+            'salesOrderId',
+            'SalesOrderId',
+            'salesOrderInternalId',
+            'SalesOrderInternalId',
+            'internalId',
+            'InternalId',
+            'kBestellung',
+            'KBestellung',
+        ]);
     }
 
     /** @param array<string, mixed> $order */
     public function jtlOrderNumber(array $order): ?string
     {
-        return $this->firstString($order, ['jtl_order_number', 'order_number', 'orderNumber', 'number', 'cBestellNr']);
+        return $this->firstString($order, [
+            'jtl_order_number',
+            'order_number',
+            'orderNumber',
+            'OrderNumber',
+            'salesOrderNumber',
+            'SalesOrderNumber',
+            'number',
+            'Number',
+            'externalSalesOrderId',
+            'ExternalSalesOrderId',
+            'cBestellNr',
+            'CBestellNr',
+        ]);
     }
 
     /** @param array<string, mixed> $order */
@@ -80,9 +161,11 @@ final class MappingService
     public function packiyoOrderNumber(array $order): ?string
     {
         $data = $this->firstArray($order, ['data', 'order']);
+        $attributes = $this->firstArray($data, ['attributes']);
 
         return $this->firstString($order, ['packiyo_order_number', 'order_number', 'orderNumber', 'number'])
-            ?? $this->firstString($data, ['order_number', 'orderNumber', 'number']);
+            ?? $this->firstString($data, ['order_number', 'orderNumber', 'number'])
+            ?? $this->firstString($attributes, ['number']);
     }
 
     /** @param array<string, mixed> $data */
@@ -108,6 +191,7 @@ final class MappingService
             'address1' => $this->firstString($address, ['address1', 'street', 'street1']),
             'address2' => $this->firstString($address, ['address2', 'street2']),
             'postal_code' => $this->firstString($address, ['postal_code', 'zip', 'zipcode', 'postalCode']),
+            'state' => $this->firstString($address, ['state', 'State', 'province', 'Province', 'region', 'Region']),
             'city' => $this->firstString($address, ['city']),
             'country' => $this->firstString($address, ['country', 'country_code', 'countryCode']),
             'email' => $this->firstString($address, ['email']),
@@ -119,11 +203,48 @@ final class MappingService
     private function normalizeLineItem(array $item): array
     {
         return [
-            'sku' => $this->firstString($item, ['sku', 'SKU', 'articleNumber', 'itemNumber', 'cArtNr']),
-            'name' => $this->firstString($item, ['name', 'title', 'description', 'cName']),
-            'quantity' => (float) ($this->firstValue($item, ['quantity', 'qty', 'amount', 'nAnzahl']) ?? 1),
-            'price' => (float) ($this->firstValue($item, ['price', 'unit_price', 'unitPrice', 'fVKNetto']) ?? 0),
+            'sku' => $this->firstString($item, ['sku', 'SKU', 'articleNumber', 'ArticleNumber', 'itemNumber', 'ItemNumber', 'cArtNr', 'CArtNr']),
+            'quantity' => (float) ($this->firstValue($item, ['quantity', 'Quantity', 'qty', 'Qty', 'amount', 'Amount', 'nAnzahl', 'NAnzahl']) ?? 1),
+            'external_id' => $this->firstString($item, ['external_id', 'externalId', 'ExternalId', 'id', 'Id', 'positionId', 'PositionId'])
+                ?? $this->firstString($item, ['sku', 'SKU', 'articleNumber', 'ArticleNumber', 'itemNumber', 'ItemNumber', 'cArtNr', 'CArtNr'])
+                ?? uniqid('jtl-item-', true),
+            'price' => (float) ($this->firstValue($item, ['price', 'Price', 'unit_price', 'unitPrice', 'UnitPrice', 'fVKNetto', 'FVKNetto']) ?? 0),
         ];
+    }
+
+    /** @param array<string, mixed> $customer */
+    private function packiyoContact(array $address, array $customer): array
+    {
+        $normalized = $this->normalizeAddress($address);
+        $name = trim((string) (($customer['name'] ?? '') ?: trim(($normalized['first_name'] ?? '') . ' ' . ($normalized['last_name'] ?? ''))));
+
+        return [
+            'name' => $name !== '' ? $name : 'Unknown',
+            'company_name' => (string) ($normalized['company'] ?? ''),
+            'address' => (string) ($normalized['address1'] ?? ''),
+            'address2' => (string) ($normalized['address2'] ?? ''),
+            'city' => (string) ($normalized['city'] ?? ''),
+            'state' => (string) ($normalized['state'] ?? ''),
+            'zip' => (string) ($normalized['postal_code'] ?? ''),
+            'country' => (string) ($normalized['country'] ?? ''),
+            'email' => (string) (($normalized['email'] ?? '') ?: ($customer['email'] ?? '')),
+            'phone' => (string) (($normalized['phone'] ?? '') ?: ($customer['phone'] ?? '')),
+        ];
+    }
+
+    private function packiyoDate(?string $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $timestamp = strtotime($value);
+
+        if ($timestamp === false) {
+            return $value;
+        }
+
+        return date('Y-m-d H:i:s', $timestamp);
     }
 
     /** @param array<string, mixed> $data */
@@ -162,4 +283,13 @@ final class MappingService
     {
         return $this->mappings ?? new OrderMapping();
     }
+
+    private function customerResolver(): PackiyoCustomerResolver
+    {
+        return $this->customerResolver ?? new PackiyoCustomerResolver();
+    }
+}
+
+final class InactivePackiyoCustomerException extends RuntimeException
+{
 }

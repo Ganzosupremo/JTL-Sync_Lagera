@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Clients;
 
+use App\Models\JtlApiCredential;
 use App\Support\Config;
 use App\Support\HttpClient;
+use Throwable;
 
 final class JtlClient
 {
@@ -20,7 +22,8 @@ final class JtlClient
         $this->http = $http ?? new HttpClient(
             (string) ($this->config['base_url'] ?? ''),
             $this->headers(),
-            (int) ($this->config['timeout'] ?? 30)
+            (int) ($this->config['timeout'] ?? 30),
+            (bool) ($this->config['ssl_verify'] ?? true)
         );
     }
 
@@ -43,6 +46,10 @@ final class JtlClient
     /** @return array<int, array<string, mixed>> */
     public function getOrderItems(string $id): array
     {
+        if (($this->config['order_items_endpoint'] ?? '') === '') {
+            return [];
+        }
+
         $response = $this->http->get($this->endpoint('order_items_endpoint', $id));
 
         return $this->collection($response);
@@ -50,7 +57,15 @@ final class JtlClient
 
     public function status(): string
     {
-        return $this->isConfigured() ? 'configured' : 'missing_config';
+        if ($this->isConfigured()) {
+            return 'configured';
+        }
+
+        try {
+            return (new JtlApiCredential())->status();
+        } catch (Throwable) {
+            return 'missing_config';
+        }
     }
 
     public function isConfigured(): bool
@@ -70,7 +85,7 @@ final class JtlClient
             return ($this->config['username'] ?? '') !== '' && ($this->config['password'] ?? '') !== '';
         }
 
-        return ($this->config['api_key'] ?? '') !== '';
+        return $this->apiKey() !== '';
     }
 
     /** @return array<string, string> */
@@ -78,10 +93,26 @@ final class JtlClient
     {
         $headers = ['Accept' => 'application/json'];
         $authType = (string) ($this->config['auth_type'] ?? 'bearer');
-        $apiKey = (string) ($this->config['api_key'] ?? '');
+        $apiKey = $this->apiKey();
+
+        if (($this->config['app_id'] ?? '') !== '') {
+            $headers['x-appid'] = (string) $this->config['app_id'];
+        }
+
+        if (($this->config['app_version'] ?? '') !== '') {
+            $headers['x-appversion'] = (string) $this->config['app_version'];
+        }
+
+        if (($this->config['api_version'] ?? '') !== '') {
+            $headers['api-version'] = (string) $this->config['api_version'];
+        }
 
         if ($authType === 'bearer' && $apiKey !== '') {
             $headers['Authorization'] = 'Bearer ' . $apiKey;
+        }
+
+        if ($authType === 'wawi' && $apiKey !== '') {
+            $headers['Authorization'] = 'Wawi ' . $apiKey;
         }
 
         if ($authType === 'api_key' && $apiKey !== '') {
@@ -98,6 +129,21 @@ final class JtlClient
         return $headers;
     }
 
+    private function apiKey(): string
+    {
+        $apiKey = (string) ($this->config['api_key'] ?? '');
+
+        if ($apiKey !== '') {
+            return $apiKey;
+        }
+
+        try {
+            return (string) ((new JtlApiCredential())->currentApiKey() ?? '');
+        } catch (Throwable) {
+            return '';
+        }
+    }
+
     private function endpoint(string $name, string $id): string
     {
         return str_replace('{id}', rawurlencode($id), (string) ($this->config[$name] ?? ''));
@@ -106,7 +152,20 @@ final class JtlClient
     /** @return array<int, array<string, mixed>> */
     private function collection(array $response): array
     {
-        foreach (['data', 'items', 'orders', 'results'] as $key) {
+        foreach ([
+            'data',
+            'Data',
+            'items',
+            'Items',
+            'orders',
+            'Orders',
+            'salesOrders',
+            'SalesOrders',
+            'results',
+            'Results',
+            'value',
+            'Value',
+        ] as $key) {
             if (isset($response[$key]) && is_array($response[$key])) {
                 return array_values(array_filter($response[$key], 'is_array'));
             }

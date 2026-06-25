@@ -13,7 +13,7 @@ Aplicacion PHP para sync JTL -> Packiyo.
 
 ## Instalacion local
 
-Requisitos: PHP 8.3+ con la extension `mysqli` habilitada y MySQL en ejecucion.
+Requisitos: PHP 8.3+ con la extension `mysqli` habilitada, MySQL en ejecucion y `curl` u `openssl` para llamadas HTTPS a JTL-Wawi.
 
 1. Copia `.env.example` a `.env`.
 2. Completa las credenciales de JTL y Packiyo.
@@ -36,6 +36,75 @@ php scripts/install.php
 php -S localhost:8080 -t public
 ```
 
+## Registro JTL-Wawi
+
+JTL-Wawi debe tener activa la pantalla `Admin -> App Registrierung` y la API escuchando en el puerto `5883`.
+
+Aunque JTL escuche en `0.0.0.0:5883`, desde esta app local se llama normalmente a `127.0.0.1:5883`. Si JTL-Wawi esta en otra maquina, usa la IP real de esa maquina en `JTL_BASE_URL`.
+
+La app usa por defecto:
+
+```env
+JTL_BASE_URL=https://127.0.0.1:5883
+JTL_AUTH_TYPE=wawi
+JTL_SSL_VERIFY=false
+JTL_API_VERSION=1.0
+JTL_APP_ID=lagera-jtlsync
+JTL_APP_ICON=<base64-png>
+JTL_CHALLENGE_CODE=lagera2026
+```
+
+Desde el dashboard:
+
+1. Pulsa `Registrar app en JTL`.
+2. Aprueba los permisos en JTL-Wawi.
+3. Pulsa `Obtener API token`.
+
+El token se guarda en MySQL en `jtl_api_credentials` y las llamadas posteriores usan `Authorization: Wawi <API_KEY>`.
+
+## Packiyo
+
+Packiyo usa JSON:API. Las llamadas se envian con:
+
+```env
+PACKIYO_MEDIA_TYPE=application/vnd.api+json
+PACKIYO_ORDER_CHANNEL_NAME=JTL-Wawi
+PACKIYO_CUSTOMER_ID=
+PACKIYO_CUSTOMERS_ENDPOINT=/customers
+```
+
+Si Packiyo exige relacionar cada pedido con un cliente concreto, completa `PACKIYO_CUSTOMER_ID` con el ID del customer en Packiyo.
+
+Para varios clientes, usa las tabs `Clientes Packiyo` y `Mapeos` del dashboard.
+
+En `Clientes Packiyo`, pulsa `Actualizar desde Packiyo` para cachear los customers actuales. La primera corrida trae todos; las siguientes usan `filter[updated_at_min]` con el ultimo cambio leido para pedir solo cambios nuevos. Los clientes desactivados se mueven a `Clientes inactivos` y no se usan para enviar pedidos a Packiyo.
+
+En `Mapeos`, cada regla asigna pedidos JTL a un `Packiyo customer ID` por:
+
+- `marketplace`
+- `sales_channel`
+- `shop`
+- `customer_number`
+- `customer_id`
+- `email`
+- `company`
+- `default`
+
+Tambien puedes pulsar `Detectar tiendas desde JTL` en `Mapeos` para leer las ordenes actuales y cachear valores de JTL como `shop=Temu EsSo`. Desde esa tabla se puede crear el mapeo directo al customer Packiyo activo, por ejemplo `Temu EsSo` -> `EsSo`.
+
+El payload de Packiyo se envia con:
+
+```json
+"relationships": {
+  "customer": {
+    "data": {
+      "type": "customers",
+      "id": "PACKIYO_CUSTOMER_ID"
+    }
+  }
+}
+```
+
 ## Cron
 
 Ejecutar cada minuto:
@@ -48,4 +117,13 @@ Ejecutar cada minuto:
 
 - `GET /` dashboard.
 - `POST /sync` ejecuta sincronizacion manual.
+- `POST /sync/order` sincroniza una sola orden JTL por ID interno o numero de orden.
+- `POST /jtl/register` inicia el registro de la app en JTL-Wawi.
+- `POST /jtl/register/complete` recupera y guarda el API token.
+- `POST /jtl/order-sources/detect` detecta tiendas/canales presentes en las ordenes JTL actuales.
+- `POST /packiyo/customers/sync` actualiza el cache de clientes Packiyo.
+- `POST /packiyo/customers/activate` activa un cliente cacheado.
+- `POST /packiyo/customers/deactivate` desactiva un cliente cacheado.
+- `POST /packiyo/customer-mappings` guarda un mapeo JTL -> Packiyo customer.
+- `POST /packiyo/customer-mappings/delete` elimina un mapeo.
 - `GET /health` devuelve estado de configuracion.

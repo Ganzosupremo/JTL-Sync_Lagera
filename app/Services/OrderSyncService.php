@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Clients\JtlClient;
 use App\Clients\PackiyoClient;
+use App\Support\HttpException;
 use App\Support\Logger;
 use RuntimeException;
 use Throwable;
@@ -48,6 +49,9 @@ final class OrderSyncService
                 $summary['created']++;
             } catch (OrderAlreadySyncedException) {
                 $summary['skipped']++;
+            } catch (InactivePackiyoCustomerException $exception) {
+                $summary['skipped']++;
+                $this->log()->info('order_sync', $exception->getMessage());
             } catch (Throwable $exception) {
                 $summary['failed']++;
                 $this->log()->error('order_sync', $exception->getMessage());
@@ -68,13 +72,54 @@ final class OrderSyncService
         return $summary;
     }
 
+    /** @return array{total: int, created: int, skipped: int, failed: int, message: string} */
+    public function syncOne(string $reference): array
+    {
+        $reference = trim($reference);
+        $summary = [
+            'total' => 1,
+            'created' => 0,
+            'skipped' => 0,
+            'failed' => 0,
+            'message' => '',
+        ];
+
+        if ($reference === '') {
+            $summary['failed'] = 1;
+            $summary['message'] = 'Referencia de orden JTL requerida.';
+            return $summary;
+        }
+
+        $this->log()->info('order_sync', 'Manual order sync requested for ' . $reference . '.');
+
+        try {
+            $order = $this->findOrder($reference);
+            $this->syncOrder($order);
+            $summary['created'] = 1;
+            $summary['message'] = 'Orden JTL ' . $this->orderLabel($order) . ' enviada a Packiyo.';
+        } catch (OrderAlreadySyncedException) {
+            $summary['skipped'] = 1;
+            $summary['message'] = 'Orden JTL ' . $reference . ' ya estaba sincronizada.';
+        } catch (InactivePackiyoCustomerException $exception) {
+            $summary['skipped'] = 1;
+            $summary['message'] = $exception->getMessage();
+            $this->log()->info('order_sync', $exception->getMessage());
+        } catch (Throwable $exception) {
+            $summary['failed'] = 1;
+            $summary['message'] = 'No se pudo sincronizar la orden JTL ' . $reference . ': ' . $exception->getMessage();
+            $this->log()->error('order_sync', $summary['message']);
+        }
+
+        return $summary;
+    }
+
     /** @param array<string, mixed> $order */
     private function syncOrder(array $order): void
     {
         $jtlOrderId = $this->mapper()->jtlOrderId($order);
 
         if ($jtlOrderId === null) {
-            throw new RuntimeException('JTL order without id was skipped.');
+            throw new RuntimeException('JTL order without id was skipped. Received keys: ' . implode(', ', array_keys($order)));
         }
 
         if ($this->mapper()->hasJtlOrder($jtlOrderId)) {
@@ -101,16 +146,71 @@ final class OrderSyncService
         $this->log()->info('order_sync', 'Synced JTL order ' . $jtlOrderId . ' to Packiyo order ' . $packiyoOrderId . '.');
     }
 
+    /** @return array<string, mixed> */
+    private function findOrder(string $reference): array
+    {
+        $orders = $this->jtlClient()->getOrders();
+
+        foreach ($orders as $order) {
+            if ($this->orderMatches($order, $reference)) {
+                return $order;
+            }
+        }
+
+        if (preg_match('/^\d+$/', $reference) === 1) {
+            try {
+                $detail = $this->unwrapOrder($this->jtlClient()->getOrder($reference));
+
+                if ($detail !== [] && $this->mapper()->jtlOrderId($detail) !== null) {
+                    return $detail;
+                }
+            } catch (Throwable $exception) {
+                $this->log()->warning('jtl', 'Unable to read JTL order ' . $reference . ' directly: ' . $exception->getMessage());
+            }
+        }
+
+        throw new RuntimeException('JTL order not found in current order list.');
+    }
+
+    /** @param array<string, mixed> $order */
+    private function orderMatches(array $order, string $reference): bool
+    {
+        $id = $this->mapper()->jtlOrderId($order);
+        $number = $this->mapper()->jtlOrderNumber($order);
+
+        return $reference === (string) $id || $reference === (string) $number;
+    }
+
+    /** @param array<string, mixed> $order */
+    private function orderLabel(array $order): string
+    {
+        return $this->mapper()->jtlOrderNumber($order)
+            ?? $this->mapper()->jtlOrderId($order)
+            ?? 'desconocida';
+    }
+
+    /** @param array<string, mixed> $response */
+    private function unwrapOrder(array $response): array
+    {
+        foreach (['data', 'Data', 'order', 'Order', 'salesOrder', 'SalesOrder'] as $key) {
+            if (isset($response[$key]) && is_array($response[$key]) && !array_is_list($response[$key])) {
+                return $response[$key];
+            }
+        }
+
+        return $response;
+    }
+
     /**
      * @param array<string, mixed> $order
      * @return array<int, array<string, mixed>>
      */
     private function itemsFromOrder(array $order): array
     {
-        foreach (['items', 'line_items', 'positions'] as $key) {
-            if (isset($order[$key]) && is_array($order[$key])) {
-                return array_values(array_filter($order[$key], 'is_array'));
-            }
+        $embeddedItems = $this->extractItems($order);
+
+        if ($embeddedItems !== []) {
+            return $embeddedItems;
         }
 
         $jtlOrderId = $this->mapper()->jtlOrderId($order);
@@ -119,7 +219,72 @@ final class OrderSyncService
             return [];
         }
 
-        return $this->jtlClient()->getOrderItems($jtlOrderId);
+        try {
+            $detail = $this->jtlClient()->getOrder($jtlOrderId);
+            $detailItems = $this->extractItems($detail);
+
+            if ($detailItems !== []) {
+                return $detailItems;
+            }
+        } catch (Throwable $exception) {
+            $this->log()->warning('jtl', 'Unable to read JTL order detail for ' . $jtlOrderId . ': ' . $exception->getMessage());
+        }
+
+        try {
+            return $this->jtlClient()->getOrderItems($jtlOrderId);
+        } catch (HttpException $exception) {
+            if ($exception->statusCode() !== 404) {
+                throw $exception;
+            }
+
+            $this->log()->warning(
+                'jtl',
+                'JTL items endpoint not available for order ' . $jtlOrderId . '. Continuing without line items.'
+            );
+
+            return [];
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $order
+     * @return array<int, array<string, mixed>>
+     */
+    private function extractItems(array $order): array
+    {
+        foreach ([
+            'items',
+            'Items',
+            'line_items',
+            'lineItems',
+            'LineItems',
+            'positions',
+            'Positions',
+            'salesOrderItems',
+            'SalesOrderItems',
+            'salesOrderPositions',
+            'SalesOrderPositions',
+            'orderItems',
+            'OrderItems',
+            'orderPositions',
+            'OrderPositions',
+        ] as $key) {
+            if (isset($order[$key]) && is_array($order[$key])) {
+                return array_values(array_filter($order[$key], 'is_array'));
+            }
+        }
+
+        foreach (['data', 'Data', 'order', 'Order', 'salesOrder', 'SalesOrder'] as $key) {
+            if (isset($order[$key]) && is_array($order[$key])) {
+                $items = $this->extractItems($order[$key]);
+
+                if ($items !== []) {
+                    return $items;
+                }
+            }
+        }
+
+        return [];
     }
 
     private function jtlClient(): JtlClient

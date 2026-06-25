@@ -39,6 +39,32 @@ final class SyncController
         header('Location: ' . $this->url('/') . '?sync=' . rawurlencode($message), true, 303);
     }
 
+    public function runOne(): void
+    {
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+            http_response_code(405);
+            echo 'Method Not Allowed';
+            return;
+        }
+
+        Database::migrate();
+
+        $reference = (string) ($_POST['order_reference'] ?? '');
+        $summary = (new OrderSyncService())->syncOne($reference);
+
+        if ($this->wantsJson()) {
+            header('Content-Type: application/json; charset=UTF-8');
+            echo json_encode($summary, JSON_THROW_ON_ERROR);
+            return;
+        }
+
+        header(
+            'Location: ' . $this->url('/') . '?tab=customer-mappings&notice=' . rawurlencode($summary['message']),
+            true,
+            303
+        );
+    }
+
     public function health(): void
     {
         header('Content-Type: application/json; charset=UTF-8');

@@ -1,2 +1,4 @@
 [2026-06-19 23:34:16] order_sync.info: Order sync started.
 [2026-06-19 23:34:17] jtl.error: Unable to read JTL orders: API base URL is not configured.
+[2026-06-19 23:57:51] order_sync.info: Order sync started.
+[2026-06-19 23:57:51] jtl.error: Unable to read JTL orders: API base URL is not configured.
