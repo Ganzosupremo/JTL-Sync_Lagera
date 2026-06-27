@@ -27,7 +27,7 @@ final class AuthController
 
         header('Content-Type: text/html; charset=UTF-8');
         echo $this->renderLogin(
-            $auth->configured() ? null : 'Autenticacion no configurada. Define AUTH_USERNAME y AUTH_PASSWORD_HASH en .env.',
+            $auth->configured() ? null : 'Autenticacion no configurada. Crea un usuario por invitacion o define el usuario bootstrap en .env.',
             $this->redirectTarget()
         );
     }
@@ -58,7 +58,7 @@ final class AuthController
 
         if (!$auth->configured()) {
             header('Content-Type: text/html; charset=UTF-8');
-            echo $this->renderLogin('Autenticacion no configurada. Define AUTH_USERNAME y AUTH_PASSWORD_HASH en .env.', $redirect);
+            echo $this->renderLogin('Autenticacion no configurada. Crea un usuario por invitacion o define el usuario bootstrap en .env.', $redirect);
             return;
         }
 

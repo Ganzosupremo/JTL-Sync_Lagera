@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Models\AppUser;
 use App\Support\Env;
 use App\Support\EnvFile;
 use App\Support\SettingsCatalog;
@@ -90,7 +91,7 @@ final class SettingsController
         $hash = trim((string) ($updates['AUTH_PASSWORD_HASH'] ?? Env::get('AUTH_PASSWORD_HASH', '')));
         $plainPassword = trim((string) Env::get('AUTH_PASSWORD', ''));
 
-        return $username !== '' && ($hash !== '' || $plainPassword !== '');
+        return (new AppUser())->hasActiveUsers() || ($username !== '' && ($hash !== '' || $plainPassword !== ''));
     }
 
     private function redirect(string $path): void

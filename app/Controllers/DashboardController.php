@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Clients\JtlClient;
 use App\Clients\PackiyoClient;
 use App\Models\AppSyncState;
+use App\Models\AppUser;
 use App\Models\FulfillmentSync;
 use App\Models\JtlApiCredential;
 use App\Models\JtlOrderSource;
@@ -14,8 +15,10 @@ use App\Models\OrderMapping;
 use App\Models\PackiyoCustomer;
 use App\Models\PackiyoCustomerMapping;
 use App\Models\SyncLog;
+use App\Models\UserInvitation;
 use App\Services\MappingService;
 use App\Services\PackiyoCustomerResolver;
+use App\Services\ProductImportService;
 use App\Support\Auth;
 use App\Support\Config;
 use App\Support\Database;
@@ -43,6 +46,15 @@ final class DashboardController
         $tab = $this->activeTab($_GET['tab'] ?? 'overview');
         $jtlOrders = [];
         $jtlOrdersError = null;
+        $productRows = [];
+        $productImportError = null;
+        $selectedProductCustomerId = is_scalar($_GET['customer_id'] ?? null) ? (string) $_GET['customer_id'] : '';
+        $productImportCategoryId = is_scalar($_GET['category_id'] ?? null)
+            ? (string) $_GET['category_id']
+            : (string) Config::get('jtl.product_import_category_id', '');
+        $productImportWarehouseId = is_scalar($_GET['warehouse_id'] ?? null)
+            ? (string) $_GET['warehouse_id']
+            : (string) Config::get('jtl.product_import_warehouse_id', '');
 
         $summary = [
             'last_sync' => $mappings->lastSyncedAt() ?? '-',
@@ -57,6 +69,14 @@ final class DashboardController
                 $jtlOrders = $this->jtlOrderRows($jtl->getOrders(), $customerMappings, $mappings, $packiyo);
             } catch (\Throwable $exception) {
                 $jtlOrdersError = $exception->getMessage();
+            }
+        }
+
+        if ($tab === 'products' && $selectedProductCustomerId !== '') {
+            try {
+                $productRows = (new ProductImportService())->preview($selectedProductCustomerId);
+            } catch (\Throwable $exception) {
+                $productImportError = $exception->getMessage();
             }
         }
 
@@ -75,6 +95,11 @@ final class DashboardController
             $fulfillmentSyncs->recent(50),
             $jtlOrders,
             $jtlOrdersError,
+            $productRows,
+            $productImportError,
+            $selectedProductCustomerId,
+            $productImportCategoryId,
+            $productImportWarehouseId,
             $mappings->recent(50),
             $logs->recent(100),
             $_GET['notice'] ?? $_GET['sync'] ?? null
@@ -93,6 +118,7 @@ final class DashboardController
      * @param array<string, mixed>|null $fulfillmentState
      * @param array<int, array<string, mixed>> $fulfillmentRows
      * @param array<int, array<string, mixed>> $jtlOrders
+     * @param array<int, array<string, mixed>> $productRows
      * @param array<int, array<string, mixed>> $mappings
      * @param array<int, array<string, mixed>> $logs
      */
@@ -110,6 +136,11 @@ final class DashboardController
         array $fulfillmentRows,
         array $jtlOrders,
         ?string $jtlOrdersError,
+        array $productRows,
+        ?string $productImportError,
+        string $selectedProductCustomerId,
+        string $productImportCategoryId,
+        string $productImportWarehouseId,
         array $mappings,
         array $logs,
         mixed $notice
@@ -390,6 +421,20 @@ final class DashboardController
             margin-bottom: 14px;
         }
 
+        .invite-form {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) minmax(120px, 180px) auto;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .product-filter-form {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) minmax(150px, 190px) minmax(150px, 190px) auto;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
         input, select, textarea {
             border: 1px solid var(--line);
             border-radius: 6px;
@@ -397,6 +442,11 @@ final class DashboardController
             min-height: 40px;
             padding: 0 10px;
             width: 100%;
+        }
+
+        input[type="checkbox"] {
+            min-height: 0;
+            width: auto;
         }
 
         textarea {
@@ -515,7 +565,7 @@ final class DashboardController
                 padding-top: 18px;
             }
 
-            .summary, .details, .mapping-form, .manual-order-form, .settings-grid {
+            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .settings-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -583,6 +633,7 @@ final class DashboardController
             <a class="tab <?= $tab === 'fulfillment' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('fulfillment')) ?>">Fulfillment</a>
             <a class="tab <?= $tab === 'packiyo-customers' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('packiyo-customers')) ?>">Clientes Packiyo</a>
             <a class="tab <?= $tab === 'customer-mappings' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('customer-mappings')) ?>">Mapeos</a>
+            <a class="tab <?= $tab === 'products' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('products')) ?>">Productos</a>
             <a class="tab <?= $tab === 'settings' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('settings')) ?>">Ajustes</a>
             <a class="tab <?= $tab === 'logs' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('logs')) ?>">Logs</a>
         </nav>
@@ -607,6 +658,10 @@ final class DashboardController
 
             <?php if ($tab === 'customer-mappings'): ?>
                 <?= $this->renderCustomerMappings($orderSources, $customerMappings, $activeCustomers) ?>
+            <?php endif; ?>
+
+            <?php if ($tab === 'products'): ?>
+                <?= $this->renderProducts($activeCustomers, $productRows, $productImportError, $selectedProductCustomerId, $productImportCategoryId, $productImportWarehouseId) ?>
             <?php endif; ?>
 
             <?php if ($tab === 'settings'): ?>
@@ -1140,6 +1195,123 @@ final class DashboardController
         return (string) ob_get_clean();
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $activeCustomers
+     * @param array<int, array<string, mixed>> $products
+     */
+    private function renderProducts(
+        array $activeCustomers,
+        array $products,
+        ?string $error,
+        string $selectedCustomerId,
+        string $categoryId,
+        string $warehouseId
+    ): string {
+        ob_start();
+        ?>
+            <section>
+                <div class="section-head">
+                    <h2>Productos Packiyo -> JTL</h2>
+                </div>
+                <div class="section-body">
+                    <form class="product-filter-form" action="<?= $this->e($this->url('/')) ?>" method="get">
+                        <input type="hidden" name="tab" value="products">
+                        <select name="customer_id" required>
+                            <option value="">Cliente Packiyo</option>
+                            <?php foreach ($activeCustomers as $customer): ?>
+                                <option value="<?= $this->e($customer['packiyo_customer_id'] ?? '') ?>" <?= $selectedCustomerId === (string) ($customer['packiyo_customer_id'] ?? '') ? 'selected' : '' ?>>
+                                    <?= $this->e($this->customerDisplayName($customer) . ' #' . ($customer['packiyo_customer_id'] ?? '')) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <input name="category_id" value="<?= $this->e($categoryId) ?>" placeholder="JTL category ID" required>
+                        <input name="warehouse_id" value="<?= $this->e($warehouseId) ?>" placeholder="JTL warehouse ID">
+                        <button class="button" type="submit">Cargar productos</button>
+                    </form>
+                    <p class="muted">El warehouse ID es necesario para importar stock. Si queda vacio, solo se crean o relacionan articulos.</p>
+
+                    <?php if ($error !== null): ?>
+                        <div class="empty">No se pudieron leer productos de Packiyo: <?= $this->e($error) ?></div>
+                    <?php elseif ($selectedCustomerId === ''): ?>
+                        <div class="empty">Selecciona un cliente Packiyo para ver sus productos. Para EsSo/Temu usa el customer ID 46 si sigue activo.</div>
+                    <?php elseif ($products === []): ?>
+                        <div class="empty">No hay productos para este cliente.</div>
+                    <?php else: ?>
+                        <form action="<?= $this->e($this->url('/products/import')) ?>" method="post">
+                            <input type="hidden" name="customer_id" value="<?= $this->e($selectedCustomerId) ?>">
+                            <input type="hidden" name="category_id" value="<?= $this->e($categoryId) ?>">
+                            <input type="hidden" name="warehouse_id" value="<?= $this->e($warehouseId) ?>">
+                            <div class="actions" style="margin-bottom: 12px;">
+                                <button class="button" type="submit">Importar / actualizar seleccionados</button>
+                            </div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th></th>
+                                        <th>SKU</th>
+                                        <th>Nombre</th>
+                                        <th>Barcode</th>
+                                        <th>Stock Packiyo</th>
+                                        <th>Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($products as $product): ?>
+                                        <?php
+                                            $selectable = ($product['status'] ?? '') === 'listo'
+                                                || (
+                                                    ($product['status'] ?? '') === 'importado'
+                                                    && ($product['jtl_item_id'] ?? '') !== ''
+                                                    && ($product['quantity_on_hand'] ?? null) !== null
+                                                );
+                                        ?>
+                                        <tr>
+                                            <td>
+                                                <?php if ($selectable): ?>
+                                                    <input type="checkbox" name="product_ids[]" value="<?= $this->e($product['packiyo_product_id'] ?? '') ?>">
+                                                <?php else: ?>
+                                                    -
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <strong><?= $this->e(($product['sku'] ?? '') ?: '-') ?></strong>
+                                                <div class="muted">Packiyo #<?= $this->e($product['packiyo_product_id'] ?? '-') ?></div>
+                                            </td>
+                                            <td><?= $this->e(($product['name'] ?? '') ?: '-') ?></td>
+                                            <td><?= $this->e(($product['barcode'] ?? '') ?: '-') ?></td>
+                                            <td>
+                                                On hand: <?= $this->e($product['quantity_on_hand'] ?? '-') ?>
+                                                <div class="muted">Available: <?= $this->e($product['quantity_available'] ?? '-') ?></div>
+                                            </td>
+                                            <td>
+                                                <span class="status <?= $this->productStatusClass((string) ($product['status'] ?? '')) ?>"><?= $this->e($product['status'] ?? '-') ?></span>
+                                                <?php if (($product['jtl_item_id'] ?? '') !== ''): ?>
+                                                    <div class="muted">JTL #<?= $this->e($product['jtl_item_id']) ?></div>
+                                                <?php endif; ?>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </form>
+                    <?php endif; ?>
+                </div>
+            </section>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    private function productStatusClass(string $status): string
+    {
+        return match ($status) {
+            'listo' => 'ready',
+            'importado' => 'synced',
+            'archivado' => 'archived',
+            default => 'missing_config',
+        };
+    }
+
     /** @param array<int, array<string, mixed>> $mappings */
     private function renderOrders(array $mappings): string
     {
@@ -1219,6 +1391,8 @@ final class DashboardController
     private function renderSettings(): string
     {
         $database = Config::get('database.mysql', []);
+        $users = (new AppUser())->all();
+        $invitations = (new UserInvitation())->recent(50);
 
         ob_start();
         ?>
@@ -1244,6 +1418,80 @@ final class DashboardController
                             <button class="button" type="submit">Guardar ajustes</button>
                         </div>
                     </form>
+
+                    <h3>Usuarios</h3>
+                    <form class="invite-form" action="<?= $this->e($this->url('/users/invite')) ?>" method="post">
+                        <input name="email" type="email" placeholder="email@empresa.com" required>
+                        <input name="ttl_hours" type="number" min="1" max="720" value="<?= $this->e(Env::get('AUTH_INVITATION_TTL_HOURS', 72)) ?>" aria-label="Horas">
+                        <button class="button" type="submit">Crear invitacion</button>
+                    </form>
+
+                    <?php if ($users === []): ?>
+                        <div class="empty">Todavia no hay usuarios en MySQL. Crea una invitacion y abre el link para crear el primer usuario.</div>
+                    <?php else: ?>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Usuario</th>
+                                    <th>Email</th>
+                                    <th>Estado</th>
+                                    <th>Ultimo login</th>
+                                    <th>Creado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($users as $user): ?>
+                                    <tr>
+                                        <td><strong><?= $this->e($user['username'] ?? '-') ?></strong></td>
+                                        <td><?= $this->e($user['email'] ?? '-') ?></td>
+                                        <td><span class="status <?= ((int) ($user['active'] ?? 0) === 1) ? 'active' : 'inactive' ?>"><?= ((int) ($user['active'] ?? 0) === 1) ? 'active' : 'inactive' ?></span></td>
+                                        <td><?= $this->e($user['last_login_at'] ?? '-') ?></td>
+                                        <td><?= $this->e($user['created_at'] ?? '-') ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+
+                    <h3>Invitaciones recientes</h3>
+                    <?php if ($invitations === []): ?>
+                        <div class="empty">Sin invitaciones.</div>
+                    <?php else: ?>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Email</th>
+                                    <th>Estado</th>
+                                    <th>Invitado por</th>
+                                    <th>Expira</th>
+                                    <th>Creada</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($invitations as $invitation): ?>
+                                    <?php $status = $this->invitationStatus($invitation); ?>
+                                    <tr>
+                                        <td><?= $this->e($invitation['email'] ?? '-') ?></td>
+                                        <td><span class="status <?= $status === 'pending' ? 'ready' : ($status === 'accepted' ? 'synced' : 'inactive') ?>"><?= $this->e($status) ?></span></td>
+                                        <td><?= $this->e($invitation['created_by_username'] ?? '-') ?></td>
+                                        <td><?= $this->e($invitation['expires_at'] ?? '-') ?></td>
+                                        <td><?= $this->e($invitation['created_at'] ?? '-') ?></td>
+                                        <td>
+                                            <?php if ($status === 'pending'): ?>
+                                                <form class="inline-form" action="<?= $this->e($this->url('/users/invite/revoke')) ?>" method="post">
+                                                    <input type="hidden" name="id" value="<?= $this->e($invitation['id'] ?? '') ?>">
+                                                    <button class="button secondary small" type="submit">Revocar</button>
+                                                </form>
+                                            <?php else: ?>
+                                                <span class="muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
 
                     <h3>Base de datos</h3>
                     <div class="details">
@@ -1277,6 +1525,26 @@ final class DashboardController
         <?php
 
         return (string) ob_get_clean();
+    }
+
+    /** @param array<string, mixed> $invitation */
+    private function invitationStatus(array $invitation): string
+    {
+        if (($invitation['accepted_at'] ?? null) !== null) {
+            return 'accepted';
+        }
+
+        if (($invitation['revoked_at'] ?? null) !== null) {
+            return 'revoked';
+        }
+
+        $expiresAt = strtotime((string) ($invitation['expires_at'] ?? ''));
+
+        if ($expiresAt !== false && $expiresAt <= time()) {
+            return 'expired';
+        }
+
+        return 'pending';
     }
 
     /** @param array<string, mixed> $field */
@@ -1351,7 +1619,7 @@ final class DashboardController
     private function activeTab(mixed $tab): string
     {
         $tab = is_string($tab) ? $tab : 'overview';
-        $allowed = ['overview', 'jtl-orders', 'fulfillment', 'packiyo-customers', 'customer-mappings', 'settings', 'logs'];
+        $allowed = ['overview', 'jtl-orders', 'fulfillment', 'packiyo-customers', 'customer-mappings', 'products', 'settings', 'logs'];
 
         return in_array($tab, $allowed, true) ? $tab : 'overview';
     }

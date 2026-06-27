@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace App\Support;
 
+use App\Models\AppUser;
+
 final class Auth
 {
+    /** @var array<string, mixed>|null */
+    private ?array $authenticatedUser = null;
+
     public function __construct()
     {
         $this->startSession();
@@ -18,11 +23,7 @@ final class Auth
 
     public function configured(): bool
     {
-        return trim((string) Env::get('AUTH_USERNAME', '')) !== ''
-            && (
-                trim((string) Env::get('AUTH_PASSWORD_HASH', '')) !== ''
-                || trim((string) Env::get('AUTH_PASSWORD', '')) !== ''
-            );
+        return $this->users()->hasActiveUsers() || $this->legacyConfigured();
     }
 
     public function check(): bool
@@ -37,6 +38,49 @@ final class Auth
     public function attempt(string $username, string $password): bool
     {
         if (!$this->enabled() || !$this->configured()) {
+            return false;
+        }
+
+        $user = $this->users()->findByLogin($username);
+
+        if ($user !== null && password_verify($password, (string) ($user['password_hash'] ?? ''))) {
+            $this->authenticatedUser = $user;
+            return true;
+        }
+
+        return $this->attemptLegacy($username, $password);
+    }
+
+    public function login(string $username): void
+    {
+        session_regenerate_id(true);
+        $_SESSION['authenticated'] = true;
+        $_SESSION['auth_user'] = $username;
+        $_SESSION['authenticated_at'] = time();
+
+        $user = $this->authenticatedUser ?? $this->users()->findByLogin($username);
+
+        if ($user !== null) {
+            $id = (int) ($user['id'] ?? 0);
+            $_SESSION['auth_user_id'] = $id;
+            $_SESSION['auth_user'] = (string) ($user['username'] ?? $username);
+
+            if ($id > 0) {
+                $this->users()->markLogin($id);
+            }
+        }
+    }
+
+    public function currentUserId(): ?int
+    {
+        $id = $_SESSION['auth_user_id'] ?? null;
+
+        return is_numeric($id) && (int) $id > 0 ? (int) $id : null;
+    }
+
+    private function attemptLegacy(string $username, string $password): bool
+    {
+        if (!$this->legacyConfigured()) {
             return false;
         }
 
@@ -57,12 +101,13 @@ final class Auth
         return $plainPassword !== '' && hash_equals($plainPassword, $password);
     }
 
-    public function login(string $username): void
+    private function legacyConfigured(): bool
     {
-        session_regenerate_id(true);
-        $_SESSION['authenticated'] = true;
-        $_SESSION['auth_user'] = $username;
-        $_SESSION['authenticated_at'] = time();
+        return trim((string) Env::get('AUTH_USERNAME', '')) !== ''
+            && (
+                trim((string) Env::get('AUTH_PASSWORD_HASH', '')) !== ''
+                || trim((string) Env::get('AUTH_PASSWORD', '')) !== ''
+            );
     }
 
     public function logout(): void
@@ -112,5 +157,10 @@ final class Auth
         ]);
 
         session_start();
+    }
+
+    private function users(): AppUser
+    {
+        return new AppUser();
     }
 }

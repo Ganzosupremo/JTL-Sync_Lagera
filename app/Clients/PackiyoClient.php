@@ -45,6 +45,56 @@ final class PackiyoClient
     }
 
     /** @return array<int, array<string, mixed>> */
+    public function listProductsForCustomer(string $customerId, int $maxPages = 10): array
+    {
+        $endpoint = (string) $this->config['products_endpoint'];
+        $query = [
+            'filter[customer]' => $customerId,
+            'page[size]' => 100,
+        ];
+
+        $products = [];
+        $page = 1;
+        $nextEndpoint = $endpoint;
+        $nextQuery = $query;
+        $requests = 0;
+
+        do {
+            $requests++;
+
+            if ($nextQuery !== [] && !isset($nextQuery['page[number]'])) {
+                $nextQuery['page[number]'] = $page;
+            }
+
+            $response = $this->http->get($nextEndpoint, ['query' => $nextQuery]);
+            $products = array_merge($products, $this->collection($response));
+
+            $nextLink = $this->nextLink($response);
+            $pageInfo = $this->pageInfo($response);
+
+            if ($nextLink !== null) {
+                $nextEndpoint = $nextLink;
+                $nextQuery = [];
+                continue;
+            }
+
+            $currentPage = (int) ($pageInfo['currentPage'] ?? $pageInfo['current_page'] ?? $page);
+            $lastPage = (int) ($pageInfo['lastPage'] ?? $pageInfo['last_page'] ?? $currentPage);
+
+            if ($currentPage >= $lastPage) {
+                break;
+            }
+
+            $page = $currentPage + 1;
+            $nextEndpoint = $endpoint;
+            $nextQuery = $query;
+            $nextQuery['page[number]'] = $page;
+        } while ($requests < $maxPages);
+
+        return $products;
+    }
+
+    /** @return array<int, array<string, mixed>> */
     public function listCustomers(?string $updatedAtMin = null): array
     {
         $endpoint = (string) $this->config['customers_endpoint'];

@@ -162,6 +162,59 @@ final class Database
                 KEY fulfillment_syncs_synced_at_index (synced_at)
             )"
         );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS app_users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(120) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                last_login_at DATETIME NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                UNIQUE KEY app_users_username_unique (username),
+                UNIQUE KEY app_users_email_unique (email),
+                KEY app_users_active_index (active)
+            )"
+        );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS app_user_invitations (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                email VARCHAR(255) NOT NULL,
+                token_hash CHAR(64) NOT NULL,
+                created_by_user_id INT NULL,
+                accepted_by_user_id INT NULL,
+                expires_at DATETIME NOT NULL,
+                accepted_at DATETIME NULL,
+                revoked_at DATETIME NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                UNIQUE KEY app_user_invitations_token_unique (token_hash),
+                KEY app_user_invitations_email_index (email),
+                KEY app_user_invitations_expires_at_index (expires_at)
+            )"
+        );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS product_mappings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                packiyo_product_id VARCHAR(100) NOT NULL,
+                packiyo_customer_id VARCHAR(100) NOT NULL,
+                sku VARCHAR(150) NOT NULL,
+                jtl_item_id VARCHAR(100) NOT NULL,
+                jtl_item_number VARCHAR(150) NULL,
+                product_name VARCHAR(255) NULL,
+                status VARCHAR(30) NOT NULL DEFAULT 'imported',
+                imported_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                UNIQUE KEY product_mappings_packiyo_product_unique (packiyo_product_id),
+                UNIQUE KEY product_mappings_sku_unique (sku),
+                KEY product_mappings_customer_index (packiyo_customer_id),
+                KEY product_mappings_status_index (status)
+            )"
+        );
     }
 
     private static function mysqlConnection(): mysqli

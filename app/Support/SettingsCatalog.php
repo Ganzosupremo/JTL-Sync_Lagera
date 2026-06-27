@@ -31,9 +31,8 @@ final class SettingsCatalog
                 'description' => 'Protege el dashboard y las acciones manuales con usuario y password.',
                 'fields' => [
                     self::boolean('AUTH_ENABLED', 'Requerir login', false),
-                    self::text('AUTH_USERNAME', 'Usuario', 'admin'),
-                    self::passwordHash('AUTH_PASSWORD_HASH', 'Nuevo password', ''),
                     self::text('AUTH_SESSION_NAME', 'Nombre de sesion', 'jtlsync_session'),
+                    self::number('AUTH_INVITATION_TTL_HOURS', 'Horas de validez de invitaciones', '72'),
                 ],
             ],
             [
@@ -59,7 +58,12 @@ final class SettingsCatalog
                     self::text('JTL_ORDER_ITEMS_ENDPOINT', 'Order items endpoint', '/api/eazybusiness/salesOrders/{id}/lineItems'),
                     self::text('JTL_DELIVERY_NOTES_ENDPOINT', 'Delivery notes endpoint', '/api/eazybusiness/deliveryNotes'),
                     self::text('JTL_DELIVERY_NOTE_PACKAGES_ENDPOINT', 'Delivery note packages endpoint', '/api/eazybusiness/deliveryNotes/{id}/packages'),
-                    self::textarea('JTL_MANDATORY_API_SCOPES', 'Scopes obligatorios', 'salesorders.read,salesorders.write,items.read,deliverynotes.read,deliverynotes.write'),
+                    self::text('JTL_ITEMS_ENDPOINT', 'Items endpoint', '/api/eazybusiness/items'),
+                    self::text('JTL_ITEM_ENDPOINT', 'Item endpoint', '/api/eazybusiness/items/{id}'),
+                    self::text('JTL_STOCKS_ENDPOINT', 'Stocks endpoint', '/api/eazybusiness/stocks'),
+                    self::text('JTL_PRODUCT_IMPORT_CATEGORY_ID', 'Categoria JTL para importar productos', ''),
+                    self::text('JTL_PRODUCT_IMPORT_WAREHOUSE_ID', 'Warehouse JTL para importar stock', ''),
+                    self::textarea('JTL_MANDATORY_API_SCOPES', 'Scopes obligatorios', 'salesorders.read,salesorders.write,items.read,items.write,item.queryitems,item.createitem,item.updateitem,inventories.read,inventories.write,stock.querystocksperitem,stock.stockadjustment,deliverynotes.read,deliverynotes.write'),
                     self::textarea('JTL_OPTIONAL_API_SCOPES', 'Scopes opcionales', ''),
                 ],
             ],
@@ -91,6 +95,7 @@ final class SettingsCatalog
                     self::text('PACKIYO_ORDER_ENDPOINT', 'Order endpoint', '/orders/{id}'),
                     self::text('PACKIYO_FIND_ORDER_ENDPOINT', 'Find order endpoint', '/orders'),
                     self::text('PACKIYO_CUSTOMERS_ENDPOINT', 'Customers endpoint', '/customers'),
+                    self::text('PACKIYO_PRODUCTS_ENDPOINT', 'Products endpoint', '/products'),
                 ],
             ],
         ];
@@ -152,15 +157,6 @@ final class SettingsCatalog
     private static function secret(string $key, string $label, string $default): array
     {
         return self::field($key, $label, 'password', $default, ['secret' => true]);
-    }
-
-    /** @return array<string, mixed> */
-    private static function passwordHash(string $key, string $label, string $default): array
-    {
-        return self::field($key, $label, 'password', $default, [
-            'secret' => true,
-            'hash_password' => true,
-        ]);
     }
 
     /** @return array<string, mixed> */

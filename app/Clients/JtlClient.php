@@ -7,6 +7,7 @@ namespace App\Clients;
 use App\Models\JtlApiCredential;
 use App\Support\Config;
 use App\Support\HttpClient;
+use App\Support\HttpException;
 use Throwable;
 
 final class JtlClient
@@ -53,6 +54,59 @@ final class JtlClient
         $response = $this->http->get($this->endpoint('order_items_endpoint', $id));
 
         return $this->collection($response);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function queryItems(?string $searchKeyword = null): array
+    {
+        $query = ['pageSize' => 50];
+
+        if ($searchKeyword !== null && $searchKeyword !== '') {
+            $query['searchKeyWord'] = $searchKeyword;
+        }
+
+        $response = $this->http->get((string) $this->config['items_endpoint'], ['query' => $query]);
+
+        return $this->collection($response);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function createItem(array $payload): array
+    {
+        return $this->http->post((string) $this->config['items_endpoint'], [
+            'json' => $payload,
+        ]);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function getStocks(string $itemId, string $warehouseId): array
+    {
+        try {
+            $response = $this->http->get((string) $this->config['stocks_endpoint'], [
+                'query' => [
+                    'itemId' => $itemId,
+                    'warehouseId' => $warehouseId,
+                    'pageSize' => 100,
+                ],
+            ]);
+        } catch (HttpException $exception) {
+            if ($exception->statusCode() === 404) {
+                return [];
+            }
+
+            throw $exception;
+        }
+
+        return $this->collection($response);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function createStockAdjustment(array $payload): array
+    {
+        return $this->http->post((string) $this->config['stocks_endpoint'], [
+            'query' => ['disableAutomaticWorkflows' => 'false'],
+            'json' => $payload,
+        ]);
     }
 
     /** @return array<int, array<string, mixed>> */

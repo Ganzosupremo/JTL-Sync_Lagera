@@ -17,5 +17,6 @@ return [
     'order_endpoint' => Env::get('PACKIYO_ORDER_ENDPOINT', '/orders/{id}'),
     'find_order_endpoint' => Env::get('PACKIYO_FIND_ORDER_ENDPOINT', '/orders'),
     'customers_endpoint' => Env::get('PACKIYO_CUSTOMERS_ENDPOINT', '/customers'),
+    'products_endpoint' => Env::get('PACKIYO_PRODUCTS_ENDPOINT', '/products'),
     'timeout' => (int) Env::get('PACKIYO_TIMEOUT', 30),
 ];

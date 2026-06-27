@@ -105,6 +105,40 @@ El payload de Packiyo se envia con:
 }
 ```
 
+## Productos Packiyo -> JTL
+
+La tab `Productos` permite importar articulos de Packiyo a JTL por cliente, no de forma masiva.
+
+Flujo:
+
+1. Selecciona un cliente Packiyo activo, por ejemplo `EsSo #46`.
+2. Ingresa el `JTL category ID` donde se crearan los articulos.
+3. Pulsa `Cargar productos`.
+4. Marca solo los productos que quieres importar.
+5. Pulsa `Importar seleccionados a JTL`.
+
+La app usa `GET /products` en Packiyo con `filter[customer]=CUSTOMER_ID`. Antes de crear un articulo en JTL, busca si el SKU ya existe con `GET /items?searchKeyWord=SKU`; si existe, solo guarda el mapeo local. Si no existe, crea el articulo con `POST /items`.
+
+Variables relacionadas:
+
+```env
+PACKIYO_PRODUCTS_ENDPOINT=/products
+JTL_ITEMS_ENDPOINT=/api/eazybusiness/items
+JTL_ITEM_ENDPOINT=/api/eazybusiness/items/{id}
+JTL_STOCKS_ENDPOINT=/api/eazybusiness/stocks
+JTL_PRODUCT_IMPORT_CATEGORY_ID=
+JTL_PRODUCT_IMPORT_WAREHOUSE_ID=
+```
+
+Scopes JTL necesarios para productos:
+
+```env
+items.read,items.write,item.queryitems,item.createitem,item.updateitem,
+inventories.read,inventories.write,stock.querystocksperitem,stock.stockadjustment
+```
+
+JTL no guarda stock dentro de `POST /items`. La app crea/relaciona articulos y, si hay `JTL warehouse ID`, ajusta stock con `POST /stocks` usando `quantity_on_hand` de Packiyo. Para evitar duplicados, primero lee el stock actual de JTL y manda solo la diferencia. Si un producto ya aparece como `importado`, puedes seleccionarlo otra vez para actualizar solo su stock.
+
 ## Automatizacion
 
 La automatizacion completa ejecuta:
@@ -144,24 +178,27 @@ El tracking hacia JTL requiere que la app registrada tenga scopes `deliverynotes
 
 ## Autenticacion
 
-La app puede proteger el dashboard y las acciones manuales con login de sesion.
+La app puede proteger el dashboard y las acciones manuales con login de sesion. Los usuarios se guardan en MySQL en `app_users` y las contrasenas se guardan siempre con `password_hash`.
 
 Variables:
 
 ```env
 AUTH_ENABLED=true
-AUTH_USERNAME=admin
-AUTH_PASSWORD_HASH=<hash-generado>
 AUTH_SESSION_NAME=jtlsync_session
+AUTH_INVITATION_TTL_HOURS=72
 ```
 
-Puedes generar el hash con:
+Flujo recomendado:
 
-```bash
-php -r "echo password_hash('tu-password-seguro', PASSWORD_DEFAULT), PHP_EOL;"
-```
+1. Entra a `Ajustes -> Usuarios`.
+2. Crea una invitacion para el email de la persona.
+3. Copia el link generado y envialo por un canal privado.
+4. La persona abre `/invite?token=...`, define usuario y password, y la app hashea el password automaticamente.
+5. Activa `Requerir login` en `Ajustes -> Autenticacion`.
 
-Tambien puedes entrar a `Ajustes`, definir `Usuario`, escribir `Nuevo password` y luego activar `Requerir login`. El password se guarda como hash. Si intentas activar la autenticacion sin password, la app no guarda el cambio para evitar bloquearte.
+No hay endpoint de registro abierto. El endpoint `/invite` solo funciona con un token valido, no expirado y no revocado.
+
+Como fallback/bootstrap, puedes definir `AUTH_USERNAME` y `AUTH_PASSWORD_HASH` manualmente en `.env`, pero el uso normal debe ser invitaciones en MySQL.
 
 El endpoint `/automation/run` no usa la sesion del navegador; sigue protegido por `AUTOMATION_TOKEN` para que el cron del hosting pueda ejecutarlo.
 
@@ -176,6 +213,7 @@ Cron antiguo, solo ordenes JTL -> Packiyo:
 - `GET /` dashboard.
 - `GET|POST /login` login del dashboard.
 - `GET|POST /logout` cierra sesion.
+- `GET|POST /invite` crea usuario usando un token de invitacion.
 - `GET|POST /automation/run` ejecuta el ciclo completo protegido por `AUTOMATION_TOKEN`.
 - `POST /sync` ejecuta sincronizacion manual.
 - `POST /sync/order` sincroniza una sola orden JTL por ID interno o numero de orden.
@@ -187,5 +225,8 @@ Cron antiguo, solo ordenes JTL -> Packiyo:
 - `POST /packiyo/customers/deactivate` desactiva un cliente cacheado.
 - `POST /packiyo/customer-mappings` guarda un mapeo JTL -> Packiyo customer.
 - `POST /packiyo/customer-mappings/delete` elimina un mapeo.
+- `POST /products/import` importa productos seleccionados de Packiyo a JTL.
 - `POST /settings` guarda ajustes de `.env` desde la tab Ajustes.
+- `POST /users/invite` crea invitaciones de usuario.
+- `POST /users/invite/revoke` revoca invitaciones pendientes.
 - `GET /health` devuelve estado de configuracion.

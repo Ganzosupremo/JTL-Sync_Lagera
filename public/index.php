@@ -10,8 +10,11 @@ use App\Controllers\JtlOrderSourceController;
 use App\Controllers\JtlRegistrationController;
 use App\Controllers\PackiyoCustomerController;
 use App\Controllers\PackiyoCustomerMappingController;
+use App\Controllers\ProductImportController;
 use App\Controllers\SettingsController;
 use App\Controllers\SyncController;
+use App\Controllers\UserInvitationController;
+use App\Support\Database;
 
 require dirname(__DIR__) . '/app/bootstrap.php';
 
@@ -23,9 +26,11 @@ if ($scriptDir !== '/' && str_starts_with($requestPath, $scriptDir)) {
 }
 
 $path = rtrim($requestPath, '/') ?: '/';
-$publicPaths = ['/login', '/logout', '/automation/run'];
+$publicPaths = ['/login', '/logout', '/invite', '/automation/run'];
 $loginTarget = $path;
 $queryString = $_SERVER['QUERY_STRING'] ?? '';
+
+Database::migrate();
 
 if (is_string($queryString) && $queryString !== '') {
     $loginTarget .= '?' . $queryString;
@@ -40,6 +45,7 @@ try {
         '/' => (new DashboardController())->index(),
         '/login' => (new AuthController())->login(),
         '/logout' => (new AuthController())->logout(),
+        '/invite' => (new UserInvitationController())->accept(),
         '/automation/run' => (new AutomationController())->run(),
         '/sync' => (new SyncController())->run(),
         '/sync/order' => (new SyncController())->runOne(),
@@ -52,7 +58,10 @@ try {
         '/packiyo/customers/deactivate' => (new PackiyoCustomerController())->deactivate(),
         '/packiyo/customer-mappings' => (new PackiyoCustomerMappingController())->store(),
         '/packiyo/customer-mappings/delete' => (new PackiyoCustomerMappingController())->delete(),
+        '/products/import' => (new ProductImportController())->import(),
         '/settings' => (new SettingsController())->save(),
+        '/users/invite' => (new UserInvitationController())->create(),
+        '/users/invite/revoke' => (new UserInvitationController())->revoke(),
         '/health' => (new SyncController())->health(),
         default => notFound(),
     };
