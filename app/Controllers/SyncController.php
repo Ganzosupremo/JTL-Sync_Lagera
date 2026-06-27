@@ -50,7 +50,10 @@ final class SyncController
         Database::migrate();
 
         $reference = (string) ($_POST['order_reference'] ?? '');
-        $summary = (new OrderSyncService())->syncOne($reference);
+        $returnTab = $this->returnTab($_POST['return_tab'] ?? 'customer-mappings');
+        $force = ($_POST['force_resync'] ?? '') === '1';
+        $resendArchived = ($_POST['resend_archived'] ?? '') === '1';
+        $summary = (new OrderSyncService())->syncOne($reference, $force, $resendArchived);
 
         if ($this->wantsJson()) {
             header('Content-Type: application/json; charset=UTF-8');
@@ -59,7 +62,7 @@ final class SyncController
         }
 
         header(
-            'Location: ' . $this->url('/') . '?tab=customer-mappings&notice=' . rawurlencode($summary['message']),
+            'Location: ' . $this->url('/') . '?tab=' . rawurlencode($returnTab) . '&notice=' . rawurlencode($summary['message']),
             true,
             303
         );
@@ -79,6 +82,14 @@ final class SyncController
         $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
 
         return is_string($accept) && str_contains($accept, 'application/json');
+    }
+
+    private function returnTab(mixed $tab): string
+    {
+        $tab = is_string($tab) ? $tab : 'customer-mappings';
+        $allowed = ['jtl-orders', 'customer-mappings'];
+
+        return in_array($tab, $allowed, true) ? $tab : 'customer-mappings';
     }
 
     private function url(string $path): string

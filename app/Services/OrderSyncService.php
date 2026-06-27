@@ -73,7 +73,7 @@ final class OrderSyncService
     }
 
     /** @return array{total: int, created: int, skipped: int, failed: int, message: string} */
-    public function syncOne(string $reference): array
+    public function syncOne(string $reference, bool $force = false, bool $resendArchived = false): array
     {
         $reference = trim($reference);
         $summary = [
@@ -94,7 +94,7 @@ final class OrderSyncService
 
         try {
             $order = $this->findOrder($reference);
-            $this->syncOrder($order);
+            $this->syncOrder($order, $force, $resendArchived);
             $summary['created'] = 1;
             $summary['message'] = 'Orden JTL ' . $this->orderLabel($order) . ' enviada a Packiyo.';
         } catch (OrderAlreadySyncedException) {
@@ -114,7 +114,7 @@ final class OrderSyncService
     }
 
     /** @param array<string, mixed> $order */
-    private function syncOrder(array $order): void
+    private function syncOrder(array $order, bool $force = false, bool $resendArchived = false): void
     {
         $jtlOrderId = $this->mapper()->jtlOrderId($order);
 
@@ -122,17 +122,51 @@ final class OrderSyncService
             throw new RuntimeException('JTL order without id was skipped. Received keys: ' . implode(', ', array_keys($order)));
         }
 
+        $replaceExistingMapping = false;
+
         if ($this->mapper()->hasJtlOrder($jtlOrderId)) {
-            throw new OrderAlreadySyncedException();
+            if (!$force) {
+                throw new OrderAlreadySyncedException();
+            }
+
+            $replaceExistingMapping = true;
+            $this->log()->warning('order_sync', 'Forced resync requested for JTL order ' . $jtlOrderId . '. Existing local mapping will be replaced after Packiyo accepts the order.');
         }
 
         $items = $this->itemsFromOrder($order);
-        $payload = $this->mapper()->toPackiyoPayload($order, $items);
+        $externalIdOverride = null;
+        $numberOverride = null;
+        $lineItemExternalIdSuffix = null;
+
+        if ($resendArchived) {
+            $resendSuffix = 'R' . date('YmdHis');
+            $externalIdOverride = $jtlOrderId . '-resend-' . $resendSuffix;
+            $numberOverride = (string) ($this->mapper()->jtlOrderNumber($order) ?? $jtlOrderId) . '-' . $resendSuffix;
+            $lineItemExternalIdSuffix = $resendSuffix;
+            $this->log()->warning(
+                'order_sync',
+                'Resending archived Packiyo order for JTL order ' . $jtlOrderId
+                . ' with new Packiyo number ' . $numberOverride
+                . ' and external_id ' . $externalIdOverride . '.'
+            );
+        }
+
+        $payload = $this->mapper()->toPackiyoPayload(
+            $order,
+            $items,
+            $externalIdOverride,
+            $numberOverride,
+            $lineItemExternalIdSuffix
+        );
         $packiyoOrder = $this->packiyoClient()->createOrder($payload);
         $packiyoOrderId = $this->mapper()->packiyoOrderId($packiyoOrder);
 
         if ($packiyoOrderId === null) {
             throw new RuntimeException('Packiyo response did not include an order id for JTL order ' . $jtlOrderId . '.');
+        }
+
+        if ($replaceExistingMapping) {
+            $this->mapper()->deleteJtlOrder($jtlOrderId);
         }
 
         $this->mapper()->save([

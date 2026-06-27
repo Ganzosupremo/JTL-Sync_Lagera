@@ -22,6 +22,11 @@ final class MappingService
         return $this->mappingModel()->existsByJtlOrderId($jtlOrderId);
     }
 
+    public function deleteJtlOrder(string $jtlOrderId): void
+    {
+        $this->mappingModel()->deleteByJtlOrderId($jtlOrderId);
+    }
+
     /** @param array<string, mixed> $data */
     public function save(array $data): int
     {
@@ -33,7 +38,13 @@ final class MappingService
      * @param array<int, array<string, mixed>> $items
      * @return array<string, mixed>
      */
-    public function toPackiyoPayload(array $order, array $items): array
+    public function toPackiyoPayload(
+        array $order,
+        array $items,
+        ?string $externalIdOverride = null,
+        ?string $numberOverride = null,
+        ?string $lineItemExternalIdSuffix = null
+    ): array
     {
         $jtlOrderId = $this->jtlOrderId($order);
 
@@ -42,18 +53,25 @@ final class MappingService
         }
 
         $jtlOrderNumber = $this->jtlOrderNumber($order);
-        $lineItems = array_map(fn (array $item): array => $this->normalizeLineItem($item), $items);
+        $externalId = $externalIdOverride ?? $jtlOrderId;
+        $lineItems = $this->normalizeLineItems($items);
+
+        if ($lineItemExternalIdSuffix !== null && $lineItemExternalIdSuffix !== '') {
+            foreach ($lineItems as $index => $lineItem) {
+                $lineItems[$index]['external_id'] = (string) $lineItem['external_id'] . '-' . $lineItemExternalIdSuffix;
+            }
+        }
 
         $attributes = [
-            'number' => $jtlOrderNumber ?? $jtlOrderId,
+            'number' => $numberOverride ?? $jtlOrderNumber ?? $jtlOrderId,
             'order_channel_name' => (string) Config::get('packiyo.order_channel_name', 'JTL-Wawi'),
-            'ordered_at' => $this->packiyoDate($this->firstString($order, ['ordered_at', 'created_at', 'date', 'Date', 'orderDate', 'OrderDate', 'creationDate', 'CreationDate'])),
-            'external_id' => $jtlOrderId,
-            'shipping' => (float) ($this->firstValue($order, ['shipping', 'Shipping', 'shippingCost', 'ShippingCost', 'fVersand', 'FVersand']) ?? 0),
+            'ordered_at' => $this->packiyoDate($this->firstString($order, ['ordered_at', 'created_at', 'date', 'Date', 'orderDate', 'OrderDate', 'creationDate', 'CreationDate', 'SalesOrderDate'])),
+            'external_id' => $externalId,
+            'shipping' => $this->shippingAmount($order, $items),
             'tax' => (float) ($this->firstValue($order, ['tax', 'Tax', 'taxAmount', 'TaxAmount']) ?? 0),
             'discount' => (float) ($this->firstValue($order, ['discount', 'Discount', 'discountAmount', 'DiscountAmount']) ?? 0),
             'shipping_contact_information_data' => $this->packiyoContact(
-                $this->firstArray($order, ['shipping_address', 'shippingAddress', 'ShippingAddress', 'deliveryAddress', 'DeliveryAddress']),
+                $this->firstArray($order, ['shipping_address', 'shippingAddress', 'ShippingAddress', 'deliveryAddress', 'DeliveryAddress', 'Shipmentaddress', 'ShipmentAddress', 'shipmentAddress']),
                 $this->normalizeCustomer($order)
             ),
             'billing_contact_information_data' => $this->packiyoContact(
@@ -68,17 +86,6 @@ final class MappingService
             'data' => [
                 'type' => 'orders',
                 'attributes' => $attributes,
-                'relationships' => [
-                    'order_items' => [
-                        'data' => array_map(
-                            fn (array $item): array => [
-                                'type' => 'order-items',
-                                'attributes' => $item,
-                            ],
-                            $lineItems
-                        ),
-                    ],
-                ],
             ],
         ];
 
@@ -172,12 +179,20 @@ final class MappingService
     private function normalizeCustomer(array $data): array
     {
         $customer = $this->firstArray($data, ['customer', 'customer_data', 'client']);
+        $billing = $this->firstArray($data, ['billing_address', 'billingAddress', 'BillingAddress', 'invoiceAddress', 'InvoiceAddress']);
+        $shipping = $this->firstArray($data, ['shipping_address', 'shippingAddress', 'ShippingAddress', 'deliveryAddress', 'DeliveryAddress', 'Shipmentaddress', 'ShipmentAddress', 'shipmentAddress']);
 
         return [
             'name' => $this->firstString($customer, ['name', 'full_name', 'fullName'])
-                ?? trim((string) ($this->firstString($customer, ['first_name', 'firstName']) . ' ' . $this->firstString($customer, ['last_name', 'lastName']))),
-            'email' => $this->firstString($customer, ['email', 'mail']),
-            'phone' => $this->firstString($customer, ['phone', 'telephone', 'mobile']),
+                ?? $this->fullName($customer)
+                ?? $this->fullName($billing)
+                ?? $this->fullName($shipping),
+            'email' => $this->firstString($customer, ['email', 'Email', 'mail', 'Mail', 'EmailAddress'])
+                ?? $this->firstString($billing, ['email', 'Email', 'mail', 'Mail', 'EmailAddress'])
+                ?? $this->firstString($shipping, ['email', 'Email', 'mail', 'Mail', 'EmailAddress']),
+            'phone' => $this->firstString($customer, ['phone', 'Phone', 'telephone', 'Telephone', 'mobile', 'Mobile', 'PhoneNumber', 'MobilePhoneNumber'])
+                ?? $this->firstString($billing, ['phone', 'Phone', 'telephone', 'Telephone', 'mobile', 'Mobile', 'PhoneNumber', 'MobilePhoneNumber'])
+                ?? $this->firstString($shipping, ['phone', 'Phone', 'telephone', 'Telephone', 'mobile', 'Mobile', 'PhoneNumber', 'MobilePhoneNumber']),
         ];
     }
 
@@ -185,38 +200,130 @@ final class MappingService
     private function normalizeAddress(array $address): array
     {
         return [
-            'first_name' => $this->firstString($address, ['first_name', 'firstName', 'firstname']),
-            'last_name' => $this->firstString($address, ['last_name', 'lastName', 'lastname']),
-            'company' => $this->firstString($address, ['company', 'companyName']),
-            'address1' => $this->firstString($address, ['address1', 'street', 'street1']),
-            'address2' => $this->firstString($address, ['address2', 'street2']),
-            'postal_code' => $this->firstString($address, ['postal_code', 'zip', 'zipcode', 'postalCode']),
+            'first_name' => $this->firstString($address, ['first_name', 'firstName', 'firstname', 'FirstName']),
+            'last_name' => $this->firstString($address, ['last_name', 'lastName', 'lastname', 'LastName']),
+            'company' => $this->firstString($address, ['company', 'Company', 'companyName', 'CompanyName']),
+            'address1' => $this->firstString($address, ['address1', 'Address1', 'street', 'Street', 'street1', 'Street1']),
+            'address2' => $this->firstString($address, ['address2', 'Address2', 'street2', 'Street2']),
+            'postal_code' => $this->firstString($address, ['postal_code', 'zip', 'Zip', 'zipcode', 'postalCode', 'PostalCode']),
             'state' => $this->firstString($address, ['state', 'State', 'province', 'Province', 'region', 'Region']),
-            'city' => $this->firstString($address, ['city']),
-            'country' => $this->firstString($address, ['country', 'country_code', 'countryCode']),
-            'email' => $this->firstString($address, ['email']),
-            'phone' => $this->firstString($address, ['phone', 'telephone']),
+            'city' => $this->firstString($address, ['city', 'City']),
+            'country' => $this->firstString($address, ['country', 'Country', 'country_code', 'countryCode', 'CountryIso', 'CountryISO']),
+            'email' => $this->firstString($address, ['email', 'Email', 'mail', 'Mail', 'EmailAddress']),
+            'phone' => $this->firstString($address, ['phone', 'Phone', 'telephone', 'Telephone', 'PhoneNumber', 'MobilePhoneNumber']),
         ];
     }
 
     /** @param array<string, mixed> $item */
     private function normalizeLineItem(array $item): array
     {
+        $name = $this->firstString($item, ['name', 'Name', 'title', 'Title', 'description', 'Description', 'cName', 'CName']);
+        $sku = $this->firstString($item, ['sku', 'SKU', 'articleNumber', 'ArticleNumber', 'itemNumber', 'ItemNumber', 'cArtNr', 'CArtNr'])
+            ?? ('JTL-LINE-' . (string) ($this->firstValue($item, ['id', 'Id']) ?? uniqid('', false)));
+
         return [
-            'sku' => $this->firstString($item, ['sku', 'SKU', 'articleNumber', 'ArticleNumber', 'itemNumber', 'ItemNumber', 'cArtNr', 'CArtNr']),
+            'sku' => $sku,
+            'name' => $name,
             'quantity' => (float) ($this->firstValue($item, ['quantity', 'Quantity', 'qty', 'Qty', 'amount', 'Amount', 'nAnzahl', 'NAnzahl']) ?? 1),
             'external_id' => $this->firstString($item, ['external_id', 'externalId', 'ExternalId', 'id', 'Id', 'positionId', 'PositionId'])
                 ?? $this->firstString($item, ['sku', 'SKU', 'articleNumber', 'ArticleNumber', 'itemNumber', 'ItemNumber', 'cArtNr', 'CArtNr'])
                 ?? uniqid('jtl-item-', true),
-            'price' => (float) ($this->firstValue($item, ['price', 'Price', 'unit_price', 'unitPrice', 'UnitPrice', 'fVKNetto', 'FVKNetto']) ?? 0),
+            'price' => (float) ($this->firstValue($item, [
+                'price',
+                'Price',
+                'unit_price',
+                'unitPrice',
+                'UnitPrice',
+                'SalesPriceGross',
+                'salesPriceGross',
+                'SalesPriceNet',
+                'salesPriceNet',
+                'fVKBrutto',
+                'FVKBrutto',
+                'fVKNetto',
+                'FVKNetto',
+            ]) ?? 0),
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeLineItems(array $items): array
+    {
+        $lineItems = [];
+
+        foreach ($items as $item) {
+            if ($this->isShippingLineItem($item)) {
+                continue;
+            }
+
+            $lineItems[] = $this->normalizeLineItem($item);
+        }
+
+        if ($lineItems === [] && $items !== []) {
+            $lineItems[] = $this->normalizeLineItem($items[0]);
+        }
+
+        if ($lineItems === []) {
+            throw new RuntimeException('JTL order has no line items. Packiyo requires order_item_data.');
+        }
+
+        return $lineItems;
+    }
+
+    /**
+     * @param array<string, mixed> $order
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function shippingAmount(array $order, array $items): float
+    {
+        $configured = $this->firstValue($order, ['shipping', 'Shipping', 'shippingCost', 'ShippingCost', 'fVersand', 'FVersand']);
+
+        if ($configured !== null && $configured !== '') {
+            return (float) $configured;
+        }
+
+        $shipping = 0.0;
+
+        foreach ($items as $item) {
+            if (!$this->isShippingLineItem($item)) {
+                continue;
+            }
+
+            $shipping += (float) ($this->firstValue($item, [
+                'SalesPriceGross',
+                'salesPriceGross',
+                'SalesPriceNet',
+                'salesPriceNet',
+                'price',
+                'Price',
+            ]) ?? 0);
+        }
+
+        return $shipping;
+    }
+
+    /** @param array<string, mixed> $item */
+    private function isShippingLineItem(array $item): bool
+    {
+        $type = $this->firstValue($item, ['Type', 'type']);
+
+        if ((string) $type === '2') {
+            return true;
+        }
+
+        $name = strtolower((string) ($this->firstValue($item, ['Name', 'name', 'title', 'Title']) ?? ''));
+
+        return str_contains($name, 'versand') || str_contains($name, 'shipping');
     }
 
     /** @param array<string, mixed> $customer */
     private function packiyoContact(array $address, array $customer): array
     {
         $normalized = $this->normalizeAddress($address);
-        $name = trim((string) (($customer['name'] ?? '') ?: trim(($normalized['first_name'] ?? '') . ' ' . ($normalized['last_name'] ?? ''))));
+        $name = trim((string) (($customer['name'] ?? '') ?: $this->fullName($normalized)));
 
         return [
             'name' => $name !== '' ? $name : 'Unknown',
@@ -230,6 +337,22 @@ final class MappingService
             'email' => (string) (($normalized['email'] ?? '') ?: ($customer['email'] ?? '')),
             'phone' => (string) (($normalized['phone'] ?? '') ?: ($customer['phone'] ?? '')),
         ];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function fullName(array $data): ?string
+    {
+        $fullName = $this->firstString($data, ['name', 'Name', 'full_name', 'fullName', 'FullName']);
+
+        if ($fullName !== null) {
+            return $fullName;
+        }
+
+        $firstName = $this->firstString($data, ['first_name', 'firstName', 'firstname', 'FirstName']);
+        $lastName = $this->firstString($data, ['last_name', 'lastName', 'lastname', 'LastName']);
+        $name = trim((string) ($firstName . ' ' . $lastName));
+
+        return $name !== '' ? $name : null;
     }
 
     private function packiyoDate(?string $value): ?string

@@ -55,6 +55,43 @@ final class JtlClient
         return $this->collection($response);
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function getDeliveryNotes(string $salesOrderId, ?string $salesOrderNumber = null): array
+    {
+        $query = ['salesOrderNumberId' => $salesOrderId];
+        $response = $this->http->get((string) $this->config['delivery_notes_endpoint'], ['query' => $query]);
+        $notes = $this->collection($response);
+
+        if ($notes !== [] || $salesOrderNumber === null || $salesOrderNumber === '') {
+            return $notes;
+        }
+
+        $response = $this->http->get((string) $this->config['delivery_notes_endpoint'], [
+            'query' => ['salesOrderNumber' => $salesOrderNumber],
+        ]);
+
+        return $this->collection($response);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function getDeliveryNotePackages(string $deliveryNoteId): array
+    {
+        $response = $this->http->get($this->deliveryNotePackagesEndpoint($deliveryNoteId));
+
+        return $this->collection($response);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $packages
+     * @return array<string, mixed>
+     */
+    public function createDeliveryNotePackages(string $deliveryNoteId, array $packages): array
+    {
+        return $this->http->post($this->deliveryNotePackagesEndpoint($deliveryNoteId), [
+            'json' => $packages,
+        ]);
+    }
+
     public function status(): string
     {
         if ($this->isConfigured()) {
@@ -147,6 +184,11 @@ final class JtlClient
     private function endpoint(string $name, string $id): string
     {
         return str_replace('{id}', rawurlencode($id), (string) ($this->config[$name] ?? ''));
+    }
+
+    private function deliveryNotePackagesEndpoint(string $id): string
+    {
+        return str_replace('{id}', rawurlencode($id), (string) ($this->config['delivery_note_packages_endpoint'] ?? ''));
     }
 
     /** @return array<int, array<string, mixed>> */

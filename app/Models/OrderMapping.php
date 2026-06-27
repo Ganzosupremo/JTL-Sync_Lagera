@@ -23,6 +23,24 @@ final class OrderMapping
         return (bool) $result->fetch_row();
     }
 
+    /** @return array<string, mixed>|null */
+    public function findByJtlOrderId(string $jtlOrderId): ?array
+    {
+        $statement = $this->connection()->prepare('SELECT * FROM order_mappings WHERE jtl_order_id = ? LIMIT 1');
+        $statement->bind_param('s', $jtlOrderId);
+        $statement->execute();
+        $row = $statement->get_result()->fetch_assoc();
+
+        return is_array($row) ? $row : null;
+    }
+
+    public function deleteByJtlOrderId(string $jtlOrderId): void
+    {
+        $statement = $this->connection()->prepare('DELETE FROM order_mappings WHERE jtl_order_id = ?');
+        $statement->bind_param('s', $jtlOrderId);
+        $statement->execute();
+    }
+
     /** @param array<string, mixed> $data */
     public function create(array $data): int
     {
@@ -52,6 +70,16 @@ final class OrderMapping
     public function recent(int $limit = 50): array
     {
         $statement = $this->connection()->prepare('SELECT * FROM order_mappings ORDER BY synced_at DESC, id DESC LIMIT ?');
+        $statement->bind_param('i', $limit);
+        $statement->execute();
+
+        return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function all(int $limit = 500): array
+    {
+        $statement = $this->connection()->prepare('SELECT * FROM order_mappings ORDER BY synced_at ASC, id ASC LIMIT ?');
         $statement->bind_param('i', $limit);
         $statement->execute();
 

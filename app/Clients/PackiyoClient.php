@@ -40,7 +40,7 @@ final class PackiyoClient
     public function findOrder(string $externalId): array
     {
         return $this->http->get((string) $this->config['find_order_endpoint'], [
-            'query' => ['external_id' => $externalId],
+            'query' => ['filter[external_id]' => $externalId],
         ]);
     }
 

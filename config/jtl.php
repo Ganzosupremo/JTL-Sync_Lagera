@@ -32,7 +32,9 @@ return [
     'password' => Env::get('JTL_PASSWORD', ''),
     'orders_endpoint' => Env::get('JTL_ORDERS_ENDPOINT', '/api/eazybusiness/salesOrders'),
     'order_endpoint' => Env::get('JTL_ORDER_ENDPOINT', '/api/eazybusiness/salesOrders/{id}'),
-    'order_items_endpoint' => Env::get('JTL_ORDER_ITEMS_ENDPOINT', ''),
+    'order_items_endpoint' => Env::get('JTL_ORDER_ITEMS_ENDPOINT', '/api/eazybusiness/salesOrders/{id}/lineItems'),
+    'delivery_notes_endpoint' => Env::get('JTL_DELIVERY_NOTES_ENDPOINT', '/api/eazybusiness/deliveryNotes'),
+    'delivery_note_packages_endpoint' => Env::get('JTL_DELIVERY_NOTE_PACKAGES_ENDPOINT', '/api/eazybusiness/deliveryNotes/{id}/packages'),
     'new_orders_query' => $query,
     'timeout' => (int) Env::get('JTL_TIMEOUT', 30),
     'ssl_verify' => Env::get('JTL_SSL_VERIFY', false),
@@ -48,6 +50,6 @@ return [
     'description' => Env::get('JTL_DESCRIPTION', 'Synchronization between JTL and Packiyo'),
     'provider_name' => Env::get('JTL_PROVIDER_NAME', 'Lagera 3PL Germany GmbH'),
     'provider_website' => Env::get('JTL_PROVIDER_WEBSITE', 'https://3plgermany.com'),
-    'mandatory_scopes' => array_values(array_filter(array_map('trim', explode(',', (string) Env::get('JTL_MANDATORY_API_SCOPES', 'salesorders.read,salesorders.write,items.read'))))),
+    'mandatory_scopes' => array_values(array_filter(array_map('trim', explode(',', (string) Env::get('JTL_MANDATORY_API_SCOPES', 'salesorders.read,salesorders.write,items.read,deliverynotes.read,deliverynotes.write'))))),
     'optional_scopes' => array_values(array_filter(array_map('trim', explode(',', (string) Env::get('JTL_OPTIONAL_API_SCOPES', ''))))),
 ];

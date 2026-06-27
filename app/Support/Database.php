@@ -137,6 +137,31 @@ final class Database
         );
 
         self::ensureJtlOrderSourceColumns($db);
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS fulfillment_syncs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                jtl_order_id VARCHAR(100) NOT NULL,
+                jtl_order_number VARCHAR(100) NULL,
+                packiyo_order_id VARCHAR(100) NOT NULL,
+                packiyo_shipment_id VARCHAR(100) NULL,
+                packiyo_tracking_id VARCHAR(100) NULL,
+                tracking_number VARCHAR(120) NOT NULL,
+                tracking_url TEXT NULL,
+                carrier VARCHAR(120) NULL,
+                shipped_at DATETIME NULL,
+                jtl_delivery_note_id VARCHAR(100) NULL,
+                jtl_package_id VARCHAR(100) NULL,
+                status VARCHAR(30) NOT NULL,
+                last_error TEXT NULL,
+                synced_at DATETIME NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                UNIQUE KEY fulfillment_syncs_order_tracking_unique (jtl_order_id, tracking_number),
+                KEY fulfillment_syncs_status_index (status),
+                KEY fulfillment_syncs_synced_at_index (synced_at)
+            )"
+        );
     }
 
     private static function mysqlConnection(): mysqli

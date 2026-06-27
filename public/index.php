@@ -2,11 +2,15 @@
 
 declare(strict_types=1);
 
+use App\Controllers\AutomationController;
+use App\Controllers\AuthController;
 use App\Controllers\DashboardController;
+use App\Controllers\FulfillmentController;
 use App\Controllers\JtlOrderSourceController;
 use App\Controllers\JtlRegistrationController;
 use App\Controllers\PackiyoCustomerController;
 use App\Controllers\PackiyoCustomerMappingController;
+use App\Controllers\SettingsController;
 use App\Controllers\SyncController;
 
 require dirname(__DIR__) . '/app/bootstrap.php';
@@ -19,12 +23,27 @@ if ($scriptDir !== '/' && str_starts_with($requestPath, $scriptDir)) {
 }
 
 $path = rtrim($requestPath, '/') ?: '/';
+$publicPaths = ['/login', '/logout', '/automation/run'];
+$loginTarget = $path;
+$queryString = $_SERVER['QUERY_STRING'] ?? '';
+
+if (is_string($queryString) && $queryString !== '') {
+    $loginTarget .= '?' . $queryString;
+}
+
+if (!in_array($path, $publicPaths, true)) {
+    (new AuthController())->requireLogin($loginTarget);
+}
 
 try {
     match ($path) {
         '/' => (new DashboardController())->index(),
+        '/login' => (new AuthController())->login(),
+        '/logout' => (new AuthController())->logout(),
+        '/automation/run' => (new AutomationController())->run(),
         '/sync' => (new SyncController())->run(),
         '/sync/order' => (new SyncController())->runOne(),
+        '/fulfillment/sync' => (new FulfillmentController())->sync(),
         '/jtl/order-sources/detect' => (new JtlOrderSourceController())->detect(),
         '/jtl/register' => (new JtlRegistrationController())->start(),
         '/jtl/register/complete' => (new JtlRegistrationController())->complete(),
@@ -33,6 +52,7 @@ try {
         '/packiyo/customers/deactivate' => (new PackiyoCustomerController())->deactivate(),
         '/packiyo/customer-mappings' => (new PackiyoCustomerMappingController())->store(),
         '/packiyo/customer-mappings/delete' => (new PackiyoCustomerMappingController())->delete(),
+        '/settings' => (new SettingsController())->save(),
         '/health' => (new SyncController())->health(),
         default => notFound(),
     };

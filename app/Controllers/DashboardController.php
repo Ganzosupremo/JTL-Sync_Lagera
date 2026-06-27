@@ -7,13 +7,21 @@ namespace App\Controllers;
 use App\Clients\JtlClient;
 use App\Clients\PackiyoClient;
 use App\Models\AppSyncState;
+use App\Models\FulfillmentSync;
 use App\Models\JtlApiCredential;
 use App\Models\JtlOrderSource;
 use App\Models\OrderMapping;
 use App\Models\PackiyoCustomer;
 use App\Models\PackiyoCustomerMapping;
 use App\Models\SyncLog;
+use App\Services\MappingService;
+use App\Services\PackiyoCustomerResolver;
+use App\Support\Auth;
+use App\Support\Config;
 use App\Support\Database;
+use App\Support\Env;
+use App\Support\HttpException;
+use App\Support\SettingsCatalog;
 
 final class DashboardController
 {
@@ -27,10 +35,14 @@ final class DashboardController
         $orderSources = new JtlOrderSource();
         $customerMappings = new PackiyoCustomerMapping();
         $packiyoCustomers = new PackiyoCustomer();
+        $fulfillmentSyncs = new FulfillmentSync();
         $syncStates = new AppSyncState();
         $jtl = new JtlClient();
         $packiyo = new PackiyoClient();
         $registration = $credentials->latest();
+        $tab = $this->activeTab($_GET['tab'] ?? 'overview');
+        $jtlOrders = [];
+        $jtlOrdersError = null;
 
         $summary = [
             'last_sync' => $mappings->lastSyncedAt() ?? '-',
@@ -40,9 +52,17 @@ final class DashboardController
             'packiyo_status' => $packiyo->status(),
         ];
 
+        if ($tab === 'jtl-orders') {
+            try {
+                $jtlOrders = $this->jtlOrderRows($jtl->getOrders(), $customerMappings, $mappings, $packiyo);
+            } catch (\Throwable $exception) {
+                $jtlOrdersError = $exception->getMessage();
+            }
+        }
+
         header('Content-Type: text/html; charset=UTF-8');
         echo $this->render(
-            $this->activeTab($_GET['tab'] ?? 'overview'),
+            $tab,
             $summary,
             $registration,
             $orderSources->all(),
@@ -51,6 +71,10 @@ final class DashboardController
             $packiyoCustomers->listByActive(true),
             $packiyoCustomers->listByActive(false),
             $syncStates->get('packiyo_customers'),
+            $syncStates->get('fulfillment_sync'),
+            $fulfillmentSyncs->recent(50),
+            $jtlOrders,
+            $jtlOrdersError,
             $mappings->recent(50),
             $logs->recent(100),
             $_GET['notice'] ?? $_GET['sync'] ?? null
@@ -66,6 +90,9 @@ final class DashboardController
      * @param array<int, array<string, mixed>> $activeCustomers
      * @param array<int, array<string, mixed>> $inactiveCustomers
      * @param array<string, mixed>|null $customerSyncState
+     * @param array<string, mixed>|null $fulfillmentState
+     * @param array<int, array<string, mixed>> $fulfillmentRows
+     * @param array<int, array<string, mixed>> $jtlOrders
      * @param array<int, array<string, mixed>> $mappings
      * @param array<int, array<string, mixed>> $logs
      */
@@ -79,6 +106,10 @@ final class DashboardController
         array $activeCustomers,
         array $inactiveCustomers,
         ?array $customerSyncState,
+        ?array $fulfillmentState,
+        array $fulfillmentRows,
+        array $jtlOrders,
+        ?string $jtlOrdersError,
         array $mappings,
         array $logs,
         mixed $notice
@@ -167,6 +198,11 @@ final class DashboardController
             white-space: nowrap;
         }
 
+        .button:disabled {
+            background: #98a2b3;
+            cursor: not-allowed;
+        }
+
         .button.secondary {
             background: #263241;
         }
@@ -237,6 +273,21 @@ final class DashboardController
         .status.active {
             background: #e7f6ec;
             color: var(--ok);
+        }
+
+        .status.synced {
+            background: #e7f6ec;
+            color: var(--ok);
+        }
+
+        .status.ready {
+            background: #edf5ff;
+            color: var(--accent);
+        }
+
+        .status.archived {
+            background: #fff4df;
+            color: var(--warn);
         }
 
         .status.inactive {
@@ -339,13 +390,52 @@ final class DashboardController
             margin-bottom: 14px;
         }
 
-        input, select {
+        input, select, textarea {
             border: 1px solid var(--line);
             border-radius: 6px;
             font: inherit;
             min-height: 40px;
             padding: 0 10px;
             width: 100%;
+        }
+
+        textarea {
+            min-height: 82px;
+            padding: 10px;
+            resize: vertical;
+        }
+
+        label {
+            color: var(--muted);
+            display: block;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .settings-form {
+            display: grid;
+            gap: 18px;
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .setting-field {
+            min-width: 0;
+        }
+
+        .setting-field.full {
+            grid-column: 1 / -1;
+        }
+
+        .field-hint {
+            color: var(--muted);
+            font-size: 12px;
+            margin-top: 5px;
         }
 
         table {
@@ -408,7 +498,8 @@ final class DashboardController
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
-            .mapping-form {
+            .mapping-form,
+            .settings-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
@@ -424,7 +515,7 @@ final class DashboardController
                 padding-top: 18px;
             }
 
-            .summary, .details, .mapping-form, .manual-order-form {
+            .summary, .details, .mapping-form, .manual-order-form, .settings-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -447,9 +538,16 @@ final class DashboardController
                 <h1>Lagera JTL Sync</h1>
                 <p class="subtitle">JTL -> Packiyo</p>
             </div>
-            <form action="<?= $this->e($this->url('/sync')) ?>" method="post">
-                <button class="button" type="submit">Sincronizar ahora</button>
-            </form>
+            <div class="actions">
+                <form action="<?= $this->e($this->url('/sync')) ?>" method="post">
+                    <button class="button" type="submit">Sincronizar ahora</button>
+                </form>
+                <?php if ((new Auth())->enabled()): ?>
+                    <form action="<?= $this->e($this->url('/logout')) ?>" method="post">
+                        <button class="button secondary" type="submit">Cerrar sesion</button>
+                    </form>
+                <?php endif; ?>
+            </div>
         </header>
 
         <?php if (is_string($notice) && $notice !== ''): ?>
@@ -481,8 +579,11 @@ final class DashboardController
 
         <nav class="tabs" aria-label="Dashboard">
             <a class="tab <?= $tab === 'overview' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('overview')) ?>">Resumen</a>
+            <a class="tab <?= $tab === 'jtl-orders' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Ordenes JTL</a>
+            <a class="tab <?= $tab === 'fulfillment' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('fulfillment')) ?>">Fulfillment</a>
             <a class="tab <?= $tab === 'packiyo-customers' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('packiyo-customers')) ?>">Clientes Packiyo</a>
             <a class="tab <?= $tab === 'customer-mappings' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('customer-mappings')) ?>">Mapeos</a>
+            <a class="tab <?= $tab === 'settings' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('settings')) ?>">Ajustes</a>
             <a class="tab <?= $tab === 'logs' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('logs')) ?>">Logs</a>
         </nav>
 
@@ -492,12 +593,24 @@ final class DashboardController
                 <?= $this->renderOrders($mappings) ?>
             <?php endif; ?>
 
+            <?php if ($tab === 'jtl-orders'): ?>
+                <?= $this->renderJtlOrders($jtlOrders, $jtlOrdersError) ?>
+            <?php endif; ?>
+
+            <?php if ($tab === 'fulfillment'): ?>
+                <?= $this->renderFulfillment($fulfillmentRows, $fulfillmentState) ?>
+            <?php endif; ?>
+
             <?php if ($tab === 'packiyo-customers'): ?>
                 <?= $this->renderPackiyoCustomers($customerCounts, $activeCustomers, $inactiveCustomers, $customerSyncState) ?>
             <?php endif; ?>
 
             <?php if ($tab === 'customer-mappings'): ?>
                 <?= $this->renderCustomerMappings($orderSources, $customerMappings, $activeCustomers) ?>
+            <?php endif; ?>
+
+            <?php if ($tab === 'settings'): ?>
+                <?= $this->renderSettings() ?>
             <?php endif; ?>
 
             <?php if ($tab === 'logs'): ?>
@@ -675,6 +788,208 @@ final class DashboardController
                     <?php endforeach; ?>
                 </tbody>
             </table>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $jtlOrders
+     */
+    private function renderJtlOrders(array $jtlOrders, ?string $error): string
+    {
+        ob_start();
+        ?>
+            <section>
+                <div class="section-head">
+                    <h2>Ordenes nuevas de JTL</h2>
+                    <form action="<?= $this->e($this->url('/')) ?>" method="get">
+                        <input type="hidden" name="tab" value="jtl-orders">
+                        <button class="button" type="submit">Recargar desde JTL</button>
+                    </form>
+                </div>
+                <div class="section-body">
+                    <?php if ($error !== null): ?>
+                        <div class="empty">No se pudieron leer las ordenes nuevas de JTL: <?= $this->e($error) ?></div>
+                    <?php elseif ($jtlOrders === []): ?>
+                        <div class="empty">Sin ordenes nuevas de JTL.</div>
+                    <?php else: ?>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Orden JTL</th>
+                                    <th>Fecha</th>
+                                    <th>Cliente orden</th>
+                                    <th>Canal JTL</th>
+                                    <th>Cliente Packiyo</th>
+                                    <th>Estado</th>
+                                    <th>Accion</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($jtlOrders as $order): ?>
+                                    <tr>
+                                        <td>
+                                            <strong><?= $this->e(($order['number'] ?? '') ?: ($order['id'] ?? '-')) ?></strong>
+                                            <div class="muted">ID <?= $this->e(($order['id'] ?? '') ?: '-') ?></div>
+                                        </td>
+                                        <td><?= $this->e($order['ordered_at'] ?? '-') ?></td>
+                                        <td><?= $this->e($order['contact'] ?? '-') ?></td>
+                                        <td>
+                                            <strong><?= $this->e($order['source'] ?? '-') ?></strong>
+                                            <?php if (($order['source_type'] ?? '') !== ''): ?>
+                                                <div class="muted"><?= $this->e($order['source_type']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($order['mapped'])): ?>
+                                                <?= $this->e($order['packiyo_customer'] ?? '-') ?>
+                                            <?php else: ?>
+                                                <span class="status missing_config">sin_mapeo</span>
+                                                <?php if (($order['candidate_summary'] ?? '') !== ''): ?>
+                                                    <div class="muted"><?= $this->e($order['candidate_summary']) ?></div>
+                                                <?php endif; ?>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (($order['sync_state'] ?? '') === 'confirmed'): ?>
+                                                <span class="status synced">confirmada</span>
+                                                <div class="muted">Packiyo #<?= $this->e($order['packiyo_order_id'] ?? '-') ?></div>
+                                            <?php elseif (($order['sync_state'] ?? '') === 'archived'): ?>
+                                                <span class="status archived">archivada</span>
+                                                <div class="muted"><?= $this->e($order['sync_message'] ?? 'Archivada en Packiyo') ?></div>
+                                            <?php elseif (($order['sync_state'] ?? '') === 'local_only'): ?>
+                                                <span class="status missing_config">solo_local</span>
+                                                <div class="muted">Packiyo #<?= $this->e($order['packiyo_order_id'] ?? '-') ?> no existe</div>
+                                            <?php elseif (($order['sync_state'] ?? '') === 'unknown'): ?>
+                                                <span class="status missing_config">sin_verificar</span>
+                                                <div class="muted"><?= $this->e($order['sync_message'] ?? 'No se pudo verificar Packiyo') ?></div>
+                                            <?php elseif (!empty($order['mapped'])): ?>
+                                                <span class="status ready">lista</span>
+                                            <?php else: ?>
+                                                <span class="status missing_config">pendiente</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (($order['sync_state'] ?? '') === 'confirmed'): ?>
+                                                <span class="muted">Ya enviada</span>
+                                            <?php elseif (($order['sync_state'] ?? '') === 'archived' && !empty($order['mapped']) && ($order['reference'] ?? '') !== ''): ?>
+                                                <form class="inline-form" action="<?= $this->e($this->url('/sync/order')) ?>" method="post">
+                                                    <input type="hidden" name="order_reference" value="<?= $this->e($order['reference']) ?>">
+                                                    <input type="hidden" name="return_tab" value="jtl-orders">
+                                                    <input type="hidden" name="force_resync" value="1">
+                                                    <input type="hidden" name="resend_archived" value="1">
+                                                    <button class="button small" type="submit">Reenviar a Packiyo</button>
+                                                </form>
+                                            <?php elseif (($order['sync_state'] ?? '') === 'local_only' && !empty($order['mapped']) && ($order['reference'] ?? '') !== ''): ?>
+                                                <form class="inline-form" action="<?= $this->e($this->url('/sync/order')) ?>" method="post">
+                                                    <input type="hidden" name="order_reference" value="<?= $this->e($order['reference']) ?>">
+                                                    <input type="hidden" name="return_tab" value="jtl-orders">
+                                                    <input type="hidden" name="force_resync" value="1">
+                                                    <button class="button small" type="submit">Reenviar</button>
+                                                </form>
+                                            <?php elseif (empty($order['mapped'])): ?>
+                                                <span class="muted">Mapear primero</span>
+                                            <?php elseif (($order['sync_state'] ?? '') === 'unknown'): ?>
+                                                <span class="muted">Recargar para verificar</span>
+                                            <?php elseif (($order['reference'] ?? '') === ''): ?>
+                                                <span class="muted">Sin ID</span>
+                                            <?php else: ?>
+                                                <form class="inline-form" action="<?= $this->e($this->url('/sync/order')) ?>" method="post">
+                                                    <input type="hidden" name="order_reference" value="<?= $this->e($order['reference']) ?>">
+                                                    <input type="hidden" name="return_tab" value="jtl-orders">
+                                                    <button class="button small" type="submit">Enviar a Packiyo</button>
+                                                </form>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+                </div>
+            </section>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<string, mixed>|null $state
+     */
+    private function renderFulfillment(array $rows, ?array $state): string
+    {
+        ob_start();
+        ?>
+            <section>
+                <div class="section-head">
+                    <h2>Fulfillment Packiyo -> JTL</h2>
+                    <form action="<?= $this->e($this->url('/fulfillment/sync')) ?>" method="post">
+                        <button class="button" type="submit">Enviar tracking a JTL</button>
+                    </form>
+                </div>
+                <div class="section-body">
+                    <div class="details">
+                        <div class="detail">
+                            <span>Ultima corrida</span>
+                            <strong><?= $this->e($state['last_success_at'] ?? '-') ?></strong>
+                        </div>
+                        <div class="detail">
+                            <span>Ultimo checkpoint</span>
+                            <strong><?= $this->e($state['last_synced_at'] ?? '-') ?></strong>
+                        </div>
+                        <div class="detail">
+                            <span>Estado</span>
+                            <strong><?= $this->e($state['last_message'] ?? '-') ?></strong>
+                        </div>
+                    </div>
+
+                    <?php if ($rows === []): ?>
+                        <div class="empty">Todavia no hay tracking enviado a JTL.</div>
+                    <?php else: ?>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Orden JTL</th>
+                                    <th>Packiyo</th>
+                                    <th>Tracking</th>
+                                    <th>Carrier</th>
+                                    <th>Delivery note</th>
+                                    <th>Estado</th>
+                                    <th>Fecha</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($rows as $row): ?>
+                                    <tr>
+                                        <td>
+                                            <strong><?= $this->e(($row['jtl_order_number'] ?? '') ?: ($row['jtl_order_id'] ?? '-')) ?></strong>
+                                            <div class="muted">ID <?= $this->e($row['jtl_order_id'] ?? '-') ?></div>
+                                        </td>
+                                        <td><?= $this->e($row['packiyo_order_id'] ?? '-') ?></td>
+                                        <td>
+                                            <strong><?= $this->e($row['tracking_number'] ?? '-') ?></strong>
+                                            <?php if (($row['tracking_url'] ?? '') !== ''): ?>
+                                                <div class="muted"><?= $this->e($row['tracking_url']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><?= $this->e($row['carrier'] ?? '-') ?></td>
+                                        <td>
+                                            <?= $this->e($row['jtl_delivery_note_id'] ?? '-') ?>
+                                            <?php if (($row['jtl_package_id'] ?? '') !== ''): ?>
+                                                <div class="muted">Package <?= $this->e($row['jtl_package_id']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><span class="status <?= (($row['status'] ?? '') === 'synced' || ($row['status'] ?? '') === 'already_present') ? 'synced' : 'missing_config' ?>"><?= $this->e($row['status'] ?? '-') ?></span></td>
+                                        <td><?= $this->e($row['synced_at'] ?? '-') ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+                </div>
+            </section>
         <?php
 
         return (string) ob_get_clean();
@@ -901,12 +1216,389 @@ final class DashboardController
         return (string) ob_get_clean();
     }
 
+    private function renderSettings(): string
+    {
+        $database = Config::get('database.mysql', []);
+
+        ob_start();
+        ?>
+            <section>
+                <div class="section-head">
+                    <h2>Ajustes</h2>
+                </div>
+                <div class="section-body">
+                    <form class="settings-form" action="<?= $this->e($this->url('/settings')) ?>" method="post" autocomplete="off">
+                        <?php foreach (SettingsCatalog::sections() as $section): ?>
+                            <div>
+                                <h3><?= $this->e($section['title'] ?? '') ?></h3>
+                                <p class="muted"><?= $this->e($section['description'] ?? '') ?></p>
+                                <div class="settings-grid">
+                                    <?php foreach (($section['fields'] ?? []) as $field): ?>
+                                        <?= $this->renderSettingField($field) ?>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+
+                        <div class="actions">
+                            <button class="button" type="submit">Guardar ajustes</button>
+                        </div>
+                    </form>
+
+                    <h3>Base de datos</h3>
+                    <div class="details">
+                        <div class="detail">
+                            <span>Host</span>
+                            <strong><?= $this->e($database['host'] ?? '-') ?></strong>
+                        </div>
+                        <div class="detail">
+                            <span>Puerto</span>
+                            <strong><?= $this->e($database['port'] ?? '-') ?></strong>
+                        </div>
+                        <div class="detail">
+                            <span>Database</span>
+                            <strong><?= $this->e($database['database'] ?? '-') ?></strong>
+                        </div>
+                        <div class="detail">
+                            <span>Usuario</span>
+                            <strong><?= $this->e($database['username'] ?? '-') ?></strong>
+                        </div>
+                        <div class="detail">
+                            <span>Charset</span>
+                            <strong><?= $this->e($database['charset'] ?? '-') ?></strong>
+                        </div>
+                        <div class="detail">
+                            <span>Collation</span>
+                            <strong><?= $this->e($database['collation'] ?? '-') ?></strong>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    /** @param array<string, mixed> $field */
+    private function renderSettingField(array $field): string
+    {
+        $key = (string) ($field['key'] ?? '');
+        $type = (string) ($field['type'] ?? 'text');
+        $id = 'setting-' . strtolower(str_replace('_', '-', $key));
+        $value = $this->settingValue($field);
+        $full = $type === 'textarea' || in_array($key, [
+            'JTL_BASE_URL',
+            'PACKIYO_BASE_URL',
+            'APP_BASE_URL',
+            'JTL_DELIVERY_NOTE_PACKAGES_ENDPOINT',
+        ], true);
+
+        ob_start();
+        ?>
+            <div class="setting-field <?= $full ? 'full' : '' ?>">
+                <label for="<?= $this->e($id) ?>"><?= $this->e($field['label'] ?? $key) ?></label>
+
+                <?php if ($type === 'boolean'): ?>
+                    <select id="<?= $this->e($id) ?>" name="<?= $this->e($key) ?>">
+                        <option value="true" <?= $value === 'true' ? 'selected' : '' ?>>true</option>
+                        <option value="false" <?= $value === 'false' ? 'selected' : '' ?>>false</option>
+                    </select>
+                <?php elseif ($type === 'select'): ?>
+                    <select id="<?= $this->e($id) ?>" name="<?= $this->e($key) ?>">
+                        <?php foreach (($field['options'] ?? []) as $option): ?>
+                            <option value="<?= $this->e($option) ?>" <?= $value === (string) $option ? 'selected' : '' ?>><?= $this->e($option) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                <?php elseif ($type === 'textarea'): ?>
+                    <textarea id="<?= $this->e($id) ?>" name="<?= $this->e($key) ?>"><?= $this->e($value) ?></textarea>
+                <?php elseif (!empty($field['secret'])): ?>
+                    <input id="<?= $this->e($id) ?>" name="<?= $this->e($key) ?>" type="password" value="" placeholder="Nuevo valor">
+                    <div class="field-hint"><?= $this->settingConfigured($key) ? 'Configurado. Dejar vacio para mantenerlo.' : 'Sin configurar.' ?></div>
+                <?php else: ?>
+                    <input id="<?= $this->e($id) ?>" name="<?= $this->e($key) ?>" type="<?= $type === 'number' ? 'number' : 'text' ?>" value="<?= $this->e($value) ?>">
+                <?php endif; ?>
+
+                <?php if ($key === 'JTL_BASE_URL'): ?>
+                    <div class="field-hint">En hosting, este valor debe apuntar a una URL alcanzable desde el servidor.</div>
+                <?php endif; ?>
+            </div>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    /** @param array<string, mixed> $field */
+    private function settingValue(array $field): string
+    {
+        $key = (string) ($field['key'] ?? '');
+        $default = (string) ($field['default'] ?? '');
+        $value = Env::get($key, $default);
+
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+
+        return is_scalar($value) ? (string) $value : $default;
+    }
+
+    private function settingConfigured(string $key): bool
+    {
+        $value = Env::get($key, '');
+
+        return is_scalar($value) && trim((string) $value) !== '';
+    }
+
     private function activeTab(mixed $tab): string
     {
         $tab = is_string($tab) ? $tab : 'overview';
-        $allowed = ['overview', 'packiyo-customers', 'customer-mappings', 'logs'];
+        $allowed = ['overview', 'jtl-orders', 'fulfillment', 'packiyo-customers', 'customer-mappings', 'settings', 'logs'];
 
         return in_array($tab, $allowed, true) ? $tab : 'overview';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $orders
+     * @return array<int, array<string, mixed>>
+     */
+    private function jtlOrderRows(
+        array $orders,
+        PackiyoCustomerMapping $customerMappings,
+        OrderMapping $orderMappings,
+        PackiyoClient $packiyo
+    ): array
+    {
+        $mapper = new MappingService($orderMappings);
+        $resolver = new PackiyoCustomerResolver($customerMappings);
+        $rows = [];
+
+        foreach ($orders as $order) {
+            $id = $mapper->jtlOrderId($order);
+            $number = $mapper->jtlOrderNumber($order);
+            $candidates = $resolver->candidates($order);
+            $mapping = $customerMappings->findForCandidates($candidates);
+            $source = $this->primaryOrderSource($candidates);
+            $orderMapping = $id !== null ? $orderMappings->findByJtlOrderId($id) : null;
+            $syncState = $this->packiyoSyncState($orderMapping, $packiyo, $id);
+
+            $rows[] = [
+                'id' => $id ?? '',
+                'number' => $number ?? '',
+                'reference' => $id ?? $number ?? '',
+                'ordered_at' => $this->orderDate($order) ?? '-',
+                'contact' => $this->orderContact($order) ?? '-',
+                'source' => $source['value'],
+                'source_type' => $source['label'],
+                'mapped' => $mapping !== null,
+                'packiyo_customer' => $mapping !== null
+                    ? trim((string) (($mapping['packiyo_customer_name'] ?: '-') . ' #' . $mapping['packiyo_customer_id']))
+                    : '',
+                'packiyo_order_id' => $orderMapping['packiyo_order_id'] ?? '',
+                'packiyo_order_number' => $orderMapping['packiyo_order_number'] ?? '',
+                'sync_state' => $syncState['state'],
+                'sync_message' => $syncState['message'],
+                'candidate_summary' => $resolver->describeCandidates($order),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param array<string, mixed>|null $orderMapping
+     * @return array{state: string, message: string}
+     */
+    private function packiyoSyncState(?array $orderMapping, PackiyoClient $packiyo, ?string $jtlOrderId): array
+    {
+        if ($orderMapping === null) {
+            return ['state' => 'not_synced', 'message' => ''];
+        }
+
+        $packiyoOrderId = trim((string) ($orderMapping['packiyo_order_id'] ?? ''));
+
+        if ($packiyoOrderId === '') {
+            return ['state' => 'local_only', 'message' => 'El mapeo local no tiene Packiyo order ID.'];
+        }
+
+        try {
+            $response = $packiyo->getOrder($packiyoOrderId);
+            $order = $this->firstPackiyoOrder($response) ?? $response;
+            $inactiveMessage = $this->packiyoInactiveMessage($order);
+
+            if ($inactiveMessage !== null) {
+                return ['state' => 'archived', 'message' => $inactiveMessage];
+            }
+
+            return ['state' => 'confirmed', 'message' => ''];
+        } catch (HttpException $exception) {
+            if ($exception->statusCode() === 404) {
+                if ($jtlOrderId !== null) {
+                    try {
+                        $foundOrder = $this->firstPackiyoOrder($packiyo->findOrder($jtlOrderId));
+
+                        if ($foundOrder !== null) {
+                            $inactiveMessage = $this->packiyoInactiveMessage($foundOrder);
+
+                            if ($inactiveMessage !== null) {
+                                return ['state' => 'archived', 'message' => $inactiveMessage];
+                            }
+
+                            return ['state' => 'confirmed', 'message' => 'Encontrada en Packiyo por external_id.'];
+                        }
+                    } catch (\Throwable $lookupException) {
+                        return ['state' => 'unknown', 'message' => 'No se pudo buscar por external_id: ' . $lookupException->getMessage()];
+                    }
+                }
+
+                return ['state' => 'local_only', 'message' => 'Packiyo no encontro la orden guardada localmente.'];
+            }
+
+            return ['state' => 'unknown', 'message' => 'HTTP ' . $exception->statusCode() . ' al verificar Packiyo.'];
+        } catch (\Throwable $exception) {
+            return ['state' => 'unknown', 'message' => $exception->getMessage()];
+        }
+    }
+
+    /** @param array<string, mixed> $response */
+    private function firstPackiyoOrder(array $response): ?array
+    {
+        $data = $response['data'] ?? $response['Data'] ?? null;
+
+        if (!is_array($data) || $data === []) {
+            return null;
+        }
+
+        if (array_is_list($data)) {
+            foreach ($data as $item) {
+                if (is_array($item)) {
+                    return $item;
+                }
+            }
+
+            return null;
+        }
+
+        return $data;
+    }
+
+    /** @param array<string, mixed> $order */
+    private function packiyoInactiveMessage(array $order): ?string
+    {
+        $attributes = $this->firstArray($order, ['attributes', 'Attributes']);
+        $archivedAt = $this->firstScalar($attributes, ['archived_at', 'archivedAt']);
+        $deletedAt = $this->firstScalar($attributes, ['deleted_at', 'deletedAt']);
+
+        if ($archivedAt !== null) {
+            return 'Archivada en Packiyo: ' . $archivedAt;
+        }
+
+        if ($deletedAt !== null) {
+            return 'Eliminada en Packiyo: ' . $deletedAt;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, array<int, string>> $candidates
+     * @return array{label: string, value: string}
+     */
+    private function primaryOrderSource(array $candidates): array
+    {
+        $labels = [
+            'sales_channel' => 'Sales channel',
+            'marketplace' => 'Marketplace',
+            'shop' => 'Shop',
+            'customer_number' => 'Customer number',
+            'customer_id' => 'Customer ID',
+            'company' => 'Company',
+            'email' => 'Email',
+        ];
+
+        foreach ($labels as $type => $label) {
+            $value = $candidates[$type][0] ?? null;
+
+            if (is_string($value) && trim($value) !== '') {
+                return ['label' => $label, 'value' => $value];
+            }
+        }
+
+        return ['label' => '', 'value' => '-'];
+    }
+
+    /** @param array<string, mixed> $order */
+    private function orderDate(array $order): ?string
+    {
+        return $this->firstScalar($order, [
+            'ordered_at',
+            'created_at',
+            'date',
+            'Date',
+            'orderDate',
+            'OrderDate',
+            'creationDate',
+            'CreationDate',
+            'SalesOrderDate',
+        ]);
+    }
+
+    /** @param array<string, mixed> $order */
+    private function orderContact(array $order): ?string
+    {
+        $customer = $this->firstArray($order, ['customer', 'Customer', 'customer_data', 'CustomerData', 'client', 'Client']);
+        $billing = $this->firstArray($order, ['billing_address', 'billingAddress', 'BillingAddress', 'invoiceAddress', 'InvoiceAddress']);
+        $shipping = $this->firstArray($order, ['shipping_address', 'shippingAddress', 'ShippingAddress', 'deliveryAddress', 'DeliveryAddress', 'Shipmentaddress', 'ShipmentAddress', 'shipmentAddress']);
+
+        return $this->fullName($shipping)
+            ?? $this->fullName($billing)
+            ?? $this->fullName($customer)
+            ?? $this->firstScalar($shipping, ['email', 'Email', 'mail', 'Mail', 'EmailAddress'])
+            ?? $this->firstScalar($billing, ['email', 'Email', 'mail', 'Mail', 'EmailAddress']);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function firstArray(array $data, array $keys): array
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $data) && is_array($data[$key])) {
+                return $data[$key];
+            }
+        }
+
+        return [];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function firstScalar(array $data, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $data) || !is_scalar($data[$key])) {
+                continue;
+            }
+
+            $value = trim((string) $data[$key]);
+
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function fullName(array $data): ?string
+    {
+        $fullName = $this->firstScalar($data, ['name', 'Name', 'full_name', 'fullName', 'FullName']);
+
+        if ($fullName !== null) {
+            return $fullName;
+        }
+
+        $firstName = $this->firstScalar($data, ['first_name', 'firstName', 'firstname', 'FirstName']);
+        $lastName = $this->firstScalar($data, ['last_name', 'lastName', 'lastname', 'LastName']);
+        $name = trim((string) ($firstName . ' ' . $lastName));
+
+        return $name !== '' ? $name : null;
     }
 
     /**

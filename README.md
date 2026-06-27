@@ -105,9 +105,67 @@ El payload de Packiyo se envia con:
 }
 ```
 
-## Cron
+## Automatizacion
 
-Ejecutar cada minuto:
+La automatizacion completa ejecuta:
+
+1. Lee ordenes nuevas de JTL.
+2. Aplica los mapeos JTL -> Packiyo customer.
+3. Crea las ordenes en Packiyo.
+4. Lee fulfillments/tracking desde Packiyo.
+5. Agrega el tracking al delivery note de JTL para que el marketplace pueda recibirlo.
+
+Para usarla en un subdominio, el servidor donde corre esta app debe poder conectarse a `JTL_BASE_URL`.
+Si JTL-Wawi esta en una PC local, usa una VPN/tunel privado o instala esta app/agente en la misma red. No expongas `:5883` publicamente sin firewall y TLS controlado.
+
+Cron CLI recomendado en el servidor:
+
+```cron
+*/5 * * * * php /ruta/al/proyecto/cron/automation.php
+```
+
+Alternativa para cron HTTP del hosting:
+
+```bash
+curl -fsS -H "X-Automation-Token: $AUTOMATION_TOKEN" https://subdominio.tu-dominio.com/automation/run
+```
+
+Variables:
+
+```env
+AUTOMATION_TOKEN=<token-largo-random>
+AUTOMATION_SYNC_CUSTOMERS=false
+AUTOMATION_FULFILLMENT_LIMIT=200
+```
+
+El endpoint HTTP queda deshabilitado si `AUTOMATION_TOKEN` esta vacio.
+
+El tracking hacia JTL requiere que la app registrada tenga scopes `deliverynotes.read` y `deliverynotes.write`, y que JTL ya tenga un `Lieferschein`/delivery note para la orden. Si no existe delivery note, la corrida registra el error y no puede marcar tracking.
+
+## Autenticacion
+
+La app puede proteger el dashboard y las acciones manuales con login de sesion.
+
+Variables:
+
+```env
+AUTH_ENABLED=true
+AUTH_USERNAME=admin
+AUTH_PASSWORD_HASH=<hash-generado>
+AUTH_SESSION_NAME=jtlsync_session
+```
+
+Puedes generar el hash con:
+
+```bash
+php -r "echo password_hash('tu-password-seguro', PASSWORD_DEFAULT), PHP_EOL;"
+```
+
+Tambien puedes entrar a `Ajustes`, definir `Usuario`, escribir `Nuevo password` y luego activar `Requerir login`. El password se guarda como hash. Si intentas activar la autenticacion sin password, la app no guarda el cambio para evitar bloquearte.
+
+El endpoint `/automation/run` no usa la sesion del navegador; sigue protegido por `AUTOMATION_TOKEN` para que el cron del hosting pueda ejecutarlo.
+
+Cron antiguo, solo ordenes JTL -> Packiyo:
 
 ```cron
 */1 * * * * php /ruta/al/proyecto/cron/sync_orders.php
@@ -116,6 +174,9 @@ Ejecutar cada minuto:
 ## Endpoints
 
 - `GET /` dashboard.
+- `GET|POST /login` login del dashboard.
+- `GET|POST /logout` cierra sesion.
+- `GET|POST /automation/run` ejecuta el ciclo completo protegido por `AUTOMATION_TOKEN`.
 - `POST /sync` ejecuta sincronizacion manual.
 - `POST /sync/order` sincroniza una sola orden JTL por ID interno o numero de orden.
 - `POST /jtl/register` inicia el registro de la app en JTL-Wawi.
@@ -126,4 +187,5 @@ Ejecutar cada minuto:
 - `POST /packiyo/customers/deactivate` desactiva un cliente cacheado.
 - `POST /packiyo/customer-mappings` guarda un mapeo JTL -> Packiyo customer.
 - `POST /packiyo/customer-mappings/delete` elimina un mapeo.
+- `POST /settings` guarda ajustes de `.env` desde la tab Ajustes.
 - `GET /health` devuelve estado de configuracion.
