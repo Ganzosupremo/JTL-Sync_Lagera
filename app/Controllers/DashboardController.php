@@ -887,6 +887,9 @@ final class DashboardController
                                         <td>
                                             <strong><?= $this->e(($order['number'] ?? '') ?: ($order['id'] ?? '-')) ?></strong>
                                             <div class="muted">ID <?= $this->e(($order['id'] ?? '') ?: '-') ?></div>
+                                            <?php if (($order['marketplace_number'] ?? '') !== ''): ?>
+                                                <div class="muted">Marketplace <?= $this->e($order['marketplace_number']) ?></div>
+                                            <?php endif; ?>
                                         </td>
                                         <td><?= $this->e($order['ordered_at'] ?? '-') ?></td>
                                         <td><?= $this->e($order['contact'] ?? '-') ?></td>
@@ -1642,6 +1645,7 @@ final class DashboardController
         foreach ($orders as $order) {
             $id = $mapper->jtlOrderId($order);
             $number = $mapper->jtlOrderNumber($order);
+            $marketplaceNumber = $mapper->marketplaceOrderNumber($order);
             $candidates = $resolver->candidates($order);
             $mapping = $customerMappings->findForCandidates($candidates);
             $source = $this->primaryOrderSource($candidates);
@@ -1651,6 +1655,7 @@ final class DashboardController
             $rows[] = [
                 'id' => $id ?? '',
                 'number' => $number ?? '',
+                'marketplace_number' => $marketplaceNumber ?? '',
                 'reference' => $id ?? $number ?? '',
                 'ordered_at' => $this->orderDate($order) ?? '-',
                 'contact' => $this->orderContact($order) ?? '-',
@@ -1699,9 +1704,14 @@ final class DashboardController
             return ['state' => 'confirmed', 'message' => ''];
         } catch (HttpException $exception) {
             if ($exception->statusCode() === 404) {
-                if ($jtlOrderId !== null) {
+                $externalIds = array_values(array_unique(array_filter([
+                    trim((string) ($orderMapping['packiyo_order_number'] ?? '')),
+                    $jtlOrderId,
+                ], static fn (?string $value): bool => $value !== null && $value !== '')));
+
+                foreach ($externalIds as $externalId) {
                     try {
-                        $foundOrder = $this->firstPackiyoOrder($packiyo->findOrder($jtlOrderId));
+                        $foundOrder = $this->firstPackiyoOrder($packiyo->findOrder($externalId));
 
                         if ($foundOrder !== null) {
                             $inactiveMessage = $this->packiyoInactiveMessage($foundOrder);
@@ -1710,7 +1720,7 @@ final class DashboardController
                                 return ['state' => 'archived', 'message' => $inactiveMessage];
                             }
 
-                            return ['state' => 'confirmed', 'message' => 'Encontrada en Packiyo por external_id.'];
+                            return ['state' => 'confirmed', 'message' => 'Encontrada en Packiyo por external_id ' . $externalId . '.'];
                         }
                     } catch (\Throwable $lookupException) {
                         return ['state' => 'unknown', 'message' => 'No se pudo buscar por external_id: ' . $lookupException->getMessage()];

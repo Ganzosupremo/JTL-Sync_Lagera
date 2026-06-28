@@ -140,8 +140,13 @@ final class OrderSyncService
 
         if ($resendArchived) {
             $resendSuffix = 'R' . date('YmdHis');
-            $externalIdOverride = $jtlOrderId . '-resend-' . $resendSuffix;
-            $numberOverride = (string) ($this->mapper()->jtlOrderNumber($order) ?? $jtlOrderId) . '-' . $resendSuffix;
+            $basePackiyoNumber = (string) (
+                $this->mapper()->marketplaceOrderNumber($order)
+                ?? $this->mapper()->jtlOrderNumber($order)
+                ?? $jtlOrderId
+            );
+            $externalIdOverride = $basePackiyoNumber . '-resend-' . $resendSuffix;
+            $numberOverride = $basePackiyoNumber . '-' . $resendSuffix;
             $lineItemExternalIdSuffix = $resendSuffix;
             $this->log()->warning(
                 'order_sync',
@@ -173,7 +178,10 @@ final class OrderSyncService
             'jtl_order_id' => $jtlOrderId,
             'jtl_order_number' => $this->mapper()->jtlOrderNumber($order),
             'packiyo_order_id' => $packiyoOrderId,
-            'packiyo_order_number' => $this->mapper()->packiyoOrderNumber($packiyoOrder),
+            'packiyo_order_number' => $this->mapper()->packiyoOrderNumber($packiyoOrder)
+                ?? $numberOverride
+                ?? $this->mapper()->marketplaceOrderNumber($order)
+                ?? $this->mapper()->jtlOrderNumber($order),
             'synced_at' => date('Y-m-d H:i:s'),
         ]);
 
@@ -211,8 +219,11 @@ final class OrderSyncService
     {
         $id = $this->mapper()->jtlOrderId($order);
         $number = $this->mapper()->jtlOrderNumber($order);
+        $marketplaceNumber = $this->mapper()->marketplaceOrderNumber($order);
 
-        return $reference === (string) $id || $reference === (string) $number;
+        return $reference === (string) $id
+            || $reference === (string) $number
+            || $reference === (string) $marketplaceNumber;
     }
 
     /** @param array<string, mixed> $order */

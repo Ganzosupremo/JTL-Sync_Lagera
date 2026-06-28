@@ -53,7 +53,9 @@ final class MappingService
         }
 
         $jtlOrderNumber = $this->jtlOrderNumber($order);
-        $externalId = $externalIdOverride ?? $jtlOrderId;
+        $marketplaceOrderNumber = $this->marketplaceOrderNumber($order);
+        $packiyoOrderNumber = $numberOverride ?? $marketplaceOrderNumber ?? $jtlOrderNumber ?? $jtlOrderId;
+        $externalId = $externalIdOverride ?? $marketplaceOrderNumber ?? $jtlOrderId;
         $lineItems = $this->normalizeLineItems($items);
 
         if ($lineItemExternalIdSuffix !== null && $lineItemExternalIdSuffix !== '') {
@@ -63,7 +65,7 @@ final class MappingService
         }
 
         $attributes = [
-            'number' => $numberOverride ?? $jtlOrderNumber ?? $jtlOrderId,
+            'number' => $packiyoOrderNumber,
             'order_channel_name' => (string) Config::get('packiyo.order_channel_name', 'JTL-Wawi'),
             'ordered_at' => $this->packiyoDate($this->firstString($order, ['ordered_at', 'created_at', 'date', 'Date', 'orderDate', 'OrderDate', 'creationDate', 'CreationDate', 'SalesOrderDate'])),
             'external_id' => $externalId,
@@ -153,6 +155,63 @@ final class MappingService
             'cBestellNr',
             'CBestellNr',
         ]);
+    }
+
+    /** @param array<string, mixed> $order */
+    public function marketplaceOrderNumber(array $order): ?string
+    {
+        $direct = $this->firstString($order, [
+            'marketplace_order_number',
+            'marketplaceOrderNumber',
+            'MarketplaceOrderNumber',
+            'marketplace_order_id',
+            'marketplaceOrderId',
+            'MarketplaceOrderId',
+            'MarketplaceOrderID',
+            'external_number',
+            'externalNumber',
+            'ExternalNumber',
+            'external_order_number',
+            'externalOrderNumber',
+            'ExternalOrderNumber',
+            'external_order_id',
+            'externalOrderId',
+            'ExternalOrderId',
+            'platform_order_number',
+            'platformOrderNumber',
+            'PlatformOrderNumber',
+            'platform_order_id',
+            'platformOrderId',
+            'PlatformOrderId',
+            'channel_order_number',
+            'channelOrderNumber',
+            'ChannelOrderNumber',
+            'channel_order_id',
+            'channelOrderId',
+            'ChannelOrderId',
+            'merchant_order_number',
+            'merchantOrderNumber',
+            'MerchantOrderNumber',
+            'merchant_order_id',
+            'merchantOrderId',
+            'MerchantOrderId',
+            'shop_order_number',
+            'shopOrderNumber',
+            'ShopOrderNumber',
+            'shop_order_id',
+            'shopOrderId',
+            'ShopOrderId',
+            'original_order_number',
+            'originalOrderNumber',
+            'OriginalOrderNumber',
+            'OriginalExternalNumber',
+        ]);
+
+        if ($direct !== null) {
+            return $direct;
+        }
+
+        return $this->findMarketplaceOrderNumber($order);
     }
 
     /** @param array<string, mixed> $order */
@@ -400,6 +459,54 @@ final class MappingService
         }
 
         return null;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function findMarketplaceOrderNumber(array $data, string $path = '', int $depth = 0): ?string
+    {
+        if ($depth > 8 || $this->pathLooksLikeOrderItems($path)) {
+            return null;
+        }
+
+        foreach ($data as $key => $value) {
+            $nextPath = $path === '' ? (string) $key : $path . '.' . (string) $key;
+
+            if (is_array($value)) {
+                $nested = $this->findMarketplaceOrderNumber($value, $nextPath, $depth + 1);
+
+                if ($nested !== null) {
+                    return $nested;
+                }
+
+                continue;
+            }
+
+            if (!is_scalar($value) || $value === null) {
+                continue;
+            }
+
+            $string = trim((string) $value);
+
+            if ($string === '' || !$this->pathLooksLikeMarketplaceOrderReference($nextPath)) {
+                continue;
+            }
+
+            if (preg_match('/\bPO[A-Z0-9-]{5,}\b/i', $string, $matches) === 1) {
+                return $matches[0];
+            }
+        }
+
+        return null;
+    }
+
+    private function pathLooksLikeMarketplaceOrderReference(string $path): bool
+    {
+        return preg_match('/external|market|platform|channel|source|origin|order|reference|number|transaction/i', $path) === 1;
+    }
+
+    private function pathLooksLikeOrderItems(string $path): bool
+    {
+        return preg_match('/(^|\.)(items|line_items|lineItems|positions|salesOrderItems|salesOrderPositions|orderItems|orderPositions)(\.|$)/i', $path) === 1;
     }
 
     private function mappingModel(): OrderMapping
