@@ -113,13 +113,23 @@ final class JtlRegistrationClient
     /** @return array<string, string> */
     private function headers(?string $apiVersion = null): array
     {
-        return [
+        $headers = [
             'Accept' => 'application/json',
             'x-appid' => (string) ($this->config['app_id'] ?? ''),
             'x-appversion' => (string) ($this->config['app_version'] ?? ''),
             'api-version' => $apiVersion ?? (string) ($this->config['api_version'] ?? '1.0'),
             'x-challengecode' => (string) ($this->config['challenge_code'] ?? ''),
         ];
+
+        if (($this->config['cloudflare_access_client_id'] ?? '') !== '') {
+            $headers['CF-Access-Client-Id'] = (string) $this->config['cloudflare_access_client_id'];
+        }
+
+        if (($this->config['cloudflare_access_client_secret'] ?? '') !== '') {
+            $headers['CF-Access-Client-Secret'] = (string) $this->config['cloudflare_access_client_secret'];
+        }
+
+        return $headers;
     }
 
     /** @return array<string, mixed> */

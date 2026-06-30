@@ -120,6 +120,15 @@ final class Database
         );
 
         $db->query(
+            "CREATE TABLE IF NOT EXISTS app_settings (
+                setting_key VARCHAR(120) PRIMARY KEY,
+                setting_value TEXT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )"
+        );
+
+        $db->query(
             "CREATE TABLE IF NOT EXISTS jtl_order_sources (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 source_type VARCHAR(50) NOT NULL,

@@ -49,6 +49,8 @@ final class SettingsCatalog
                 'description' => 'Conexion, endpoints y scopes usados para leer ordenes y enviar tracking.',
                 'fields' => [
                     self::text('JTL_BASE_URL', 'Base URL', 'https://127.0.0.1:5883'),
+                    self::text('JTL_CF_ACCESS_CLIENT_ID', 'Cloudflare Access Client ID', ''),
+                    self::secret('JTL_CF_ACCESS_CLIENT_SECRET', 'Cloudflare Access Client Secret', ''),
                     self::boolean('JTL_SSL_VERIFY', 'Verificar SSL', false),
                     self::text('JTL_API_VERSION', 'API version', '1.0'),
                     self::text('JTL_NEW_ORDERS_QUERY', 'Filtro de ordenes nuevas', 'status=new'),

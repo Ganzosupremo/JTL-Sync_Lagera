@@ -7,8 +7,7 @@ namespace App\Controllers;
 use App\Models\AppUser;
 use App\Models\UserInvitation;
 use App\Support\Auth;
-use App\Support\Config;
-use App\Support\Env;
+use App\Support\Setting;
 use RuntimeException;
 use Throwable;
 
@@ -251,7 +250,7 @@ final class UserInvitationController
             return (int) $value;
         }
 
-        return (int) Env::get('AUTH_INVITATION_TTL_HOURS', 72);
+        return (int) Setting::get('AUTH_INVITATION_TTL_HOURS', 72);
     }
 
     private function absoluteUrl(string $path): string
@@ -270,7 +269,7 @@ final class UserInvitationController
 
     private function configuredBaseUrl(): string
     {
-        $baseUrl = trim((string) Config::get('app.base_url', ''));
+        $baseUrl = trim((string) Setting::get('APP_BASE_URL', ''));
 
         if ($baseUrl === '') {
             return '';

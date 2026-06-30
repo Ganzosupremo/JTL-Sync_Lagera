@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\AppUser;
-use App\Support\Env;
-use App\Support\EnvFile;
+use App\Support\Setting;
 use App\Support\SettingsCatalog;
 
 final class SettingsController
@@ -35,9 +34,9 @@ final class SettingsController
             $this->redirect('/?tab=settings&notice=' . rawurlencode('Configura usuario y password antes de activar autenticacion.'));
         }
 
-        (new EnvFile(BASE_PATH . '/.env'))->update($updates);
+        Setting::putMany($updates);
 
-        $this->redirect('/?tab=settings&notice=' . rawurlencode('Configuracion guardada.'));
+        $this->redirect('/?tab=settings&notice=' . rawurlencode('Configuracion guardada en MySQL.'));
     }
 
     /** @param array<string, mixed> $field */
@@ -81,15 +80,15 @@ final class SettingsController
     /** @param array<string, string> $updates */
     private function authWillBeConfigured(array $updates): bool
     {
-        $authEnabled = $updates['AUTH_ENABLED'] ?? Env::get('AUTH_ENABLED', 'false');
+        $authEnabled = $updates['AUTH_ENABLED'] ?? ((bool) Setting::get('AUTH_ENABLED', false) ? 'true' : 'false');
 
         if ($authEnabled !== 'true') {
             return true;
         }
 
-        $username = trim((string) ($updates['AUTH_USERNAME'] ?? Env::get('AUTH_USERNAME', '')));
-        $hash = trim((string) ($updates['AUTH_PASSWORD_HASH'] ?? Env::get('AUTH_PASSWORD_HASH', '')));
-        $plainPassword = trim((string) Env::get('AUTH_PASSWORD', ''));
+        $username = trim((string) ($updates['AUTH_USERNAME'] ?? Setting::get('AUTH_USERNAME', '')));
+        $hash = trim((string) ($updates['AUTH_PASSWORD_HASH'] ?? Setting::get('AUTH_PASSWORD_HASH', '')));
+        $plainPassword = trim((string) Setting::get('AUTH_PASSWORD', ''));
 
         return (new AppUser())->hasActiveUsers() || ($username !== '' && ($hash !== '' || $plainPassword !== ''));
     }

@@ -24,8 +24,8 @@ use App\Services\ProductSkuAliasService;
 use App\Support\Auth;
 use App\Support\Config;
 use App\Support\Database;
-use App\Support\Env;
 use App\Support\HttpException;
+use App\Support\Setting;
 use App\Support\SettingsCatalog;
 
 final class DashboardController
@@ -1733,7 +1733,7 @@ final class DashboardController
                     <h3>Usuarios</h3>
                     <form class="invite-form" action="<?= $this->e($this->url('/users/invite')) ?>" method="post">
                         <input name="email" type="email" placeholder="email@empresa.com" required>
-                        <input name="ttl_hours" type="number" min="1" max="720" value="<?= $this->e(Env::get('AUTH_INVITATION_TTL_HOURS', 72)) ?>" aria-label="Horas">
+                        <input name="ttl_hours" type="number" min="1" max="720" value="<?= $this->e(Setting::get('AUTH_INVITATION_TTL_HOURS', 72)) ?>" aria-label="Horas">
                         <button class="button" type="submit">Crear invitacion</button>
                     </form>
 
@@ -1898,7 +1898,7 @@ final class DashboardController
                 <?php endif; ?>
 
                 <?php if ($key === 'JTL_BASE_URL'): ?>
-                    <div class="field-hint">En hosting, este valor debe apuntar a una URL alcanzable desde el servidor.</div>
+                    <div class="field-hint">En hosting compartido, usa la URL publica del Cloudflare Tunnel, por ejemplo https://jtl-wawi.3plgermany.com.</div>
                 <?php endif; ?>
             </div>
         <?php
@@ -1911,7 +1911,7 @@ final class DashboardController
     {
         $key = (string) ($field['key'] ?? '');
         $default = (string) ($field['default'] ?? '');
-        $value = Env::get($key, $default);
+        $value = Setting::get($key, $default);
 
         if (is_bool($value)) {
             return $value ? 'true' : 'false';
@@ -1922,9 +1922,7 @@ final class DashboardController
 
     private function settingConfigured(string $key): bool
     {
-        $value = Env::get($key, '');
-
-        return is_scalar($value) && trim((string) $value) !== '';
+        return Setting::configured($key);
     }
 
     private function activeTab(mixed $tab): string

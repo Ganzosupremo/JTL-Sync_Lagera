@@ -18,7 +18,7 @@ final class Auth
 
     public function enabled(): bool
     {
-        return (bool) Env::get('AUTH_ENABLED', false);
+        return (bool) Setting::get('AUTH_ENABLED', false);
     }
 
     public function configured(): bool
@@ -84,29 +84,29 @@ final class Auth
             return false;
         }
 
-        $expectedUser = (string) Env::get('AUTH_USERNAME', '');
+        $expectedUser = (string) Setting::get('AUTH_USERNAME', '');
 
         if (!hash_equals($expectedUser, $username)) {
             return false;
         }
 
-        $hash = trim((string) Env::get('AUTH_PASSWORD_HASH', ''));
+        $hash = trim((string) Setting::get('AUTH_PASSWORD_HASH', ''));
 
         if ($hash !== '') {
             return password_verify($password, $hash);
         }
 
-        $plainPassword = (string) Env::get('AUTH_PASSWORD', '');
+        $plainPassword = (string) Setting::get('AUTH_PASSWORD', '');
 
         return $plainPassword !== '' && hash_equals($plainPassword, $password);
     }
 
     private function legacyConfigured(): bool
     {
-        return trim((string) Env::get('AUTH_USERNAME', '')) !== ''
+        return trim((string) Setting::get('AUTH_USERNAME', '')) !== ''
             && (
-                trim((string) Env::get('AUTH_PASSWORD_HASH', '')) !== ''
-                || trim((string) Env::get('AUTH_PASSWORD', '')) !== ''
+                trim((string) Setting::get('AUTH_PASSWORD_HASH', '')) !== ''
+                || trim((string) Setting::get('AUTH_PASSWORD', '')) !== ''
             );
     }
 
@@ -140,7 +140,7 @@ final class Auth
             return;
         }
 
-        $sessionName = (string) Env::get('AUTH_SESSION_NAME', 'jtlsync_session');
+        $sessionName = (string) Setting::get('AUTH_SESSION_NAME', 'jtlsync_session');
 
         if (preg_match('/^[A-Za-z0-9_-]+$/', $sessionName) === 1) {
             session_name($sessionName);

@@ -198,6 +198,14 @@ final class JtlClient
             $headers['api-version'] = (string) $this->config['api_version'];
         }
 
+        if (($this->config['cloudflare_access_client_id'] ?? '') !== '') {
+            $headers['CF-Access-Client-Id'] = (string) $this->config['cloudflare_access_client_id'];
+        }
+
+        if (($this->config['cloudflare_access_client_secret'] ?? '') !== '') {
+            $headers['CF-Access-Client-Secret'] = (string) $this->config['cloudflare_access_client_secret'];
+        }
+
         if ($authType === 'bearer' && $apiKey !== '') {
             $headers['Authorization'] = 'Bearer ' . $apiKey;
         }
