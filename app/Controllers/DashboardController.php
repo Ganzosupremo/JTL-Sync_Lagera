@@ -14,11 +14,13 @@ use App\Models\JtlOrderSource;
 use App\Models\OrderMapping;
 use App\Models\PackiyoCustomer;
 use App\Models\PackiyoCustomerMapping;
+use App\Models\ProductSkuAlias;
 use App\Models\SyncLog;
 use App\Models\UserInvitation;
 use App\Services\MappingService;
 use App\Services\PackiyoCustomerResolver;
 use App\Services\ProductImportService;
+use App\Services\ProductSkuAliasService;
 use App\Support\Auth;
 use App\Support\Config;
 use App\Support\Database;
@@ -48,7 +50,13 @@ final class DashboardController
         $jtlOrdersError = null;
         $productRows = [];
         $productImportError = null;
+        $productSkuAliasRows = [];
+        $productSkuAliasProducts = [];
+        $productSkuAliasError = null;
+        $jtlOrderCustomerFilter = is_scalar($_GET['jtl_customer'] ?? null) ? trim((string) $_GET['jtl_customer']) : '';
+        $jtlOrderMappedCustomerFilter = is_scalar($_GET['jtl_mapped_customer'] ?? null) ? trim((string) $_GET['jtl_mapped_customer']) : '';
         $selectedProductCustomerId = is_scalar($_GET['customer_id'] ?? null) ? (string) $_GET['customer_id'] : '';
+        $selectedSkuAliasCustomerId = is_scalar($_GET['sku_customer_id'] ?? null) ? (string) $_GET['sku_customer_id'] : '';
         $productImportCategoryId = is_scalar($_GET['category_id'] ?? null)
             ? (string) $_GET['category_id']
             : (string) Config::get('jtl.product_import_category_id', '');
@@ -66,7 +74,11 @@ final class DashboardController
 
         if ($tab === 'jtl-orders') {
             try {
-                $jtlOrders = $this->jtlOrderRows($jtl->getOrders(), $customerMappings, $mappings, $packiyo);
+                $jtlOrders = $this->filterJtlOrderRows(
+                    $this->jtlOrderRows($jtl->getOrders(), $customerMappings, $mappings, $packiyo),
+                    $jtlOrderCustomerFilter,
+                    $jtlOrderMappedCustomerFilter
+                );
             } catch (\Throwable $exception) {
                 $jtlOrdersError = $exception->getMessage();
             }
@@ -77,6 +89,16 @@ final class DashboardController
                 $productRows = (new ProductImportService())->preview($selectedProductCustomerId);
             } catch (\Throwable $exception) {
                 $productImportError = $exception->getMessage();
+            }
+        }
+
+        if ($tab === 'customer-mappings' && $selectedSkuAliasCustomerId !== '') {
+            $productSkuAliasRows = (new ProductSkuAlias())->allForCustomer($selectedSkuAliasCustomerId);
+
+            try {
+                $productSkuAliasProducts = (new ProductSkuAliasService())->preview($selectedSkuAliasCustomerId);
+            } catch (\Throwable $exception) {
+                $productSkuAliasError = $exception->getMessage();
             }
         }
 
@@ -95,6 +117,12 @@ final class DashboardController
             $fulfillmentSyncs->recent(50),
             $jtlOrders,
             $jtlOrdersError,
+            $jtlOrderCustomerFilter,
+            $jtlOrderMappedCustomerFilter,
+            $productSkuAliasRows,
+            $productSkuAliasProducts,
+            $productSkuAliasError,
+            $selectedSkuAliasCustomerId,
             $productRows,
             $productImportError,
             $selectedProductCustomerId,
@@ -118,6 +146,10 @@ final class DashboardController
      * @param array<string, mixed>|null $fulfillmentState
      * @param array<int, array<string, mixed>> $fulfillmentRows
      * @param array<int, array<string, mixed>> $jtlOrders
+     * @param string $jtlOrderCustomerFilter
+     * @param string $jtlOrderMappedCustomerFilter
+     * @param array<int, array<string, mixed>> $productSkuAliasRows
+     * @param array<int, array<string, mixed>> $productSkuAliasProducts
      * @param array<int, array<string, mixed>> $productRows
      * @param array<int, array<string, mixed>> $mappings
      * @param array<int, array<string, mixed>> $logs
@@ -136,6 +168,12 @@ final class DashboardController
         array $fulfillmentRows,
         array $jtlOrders,
         ?string $jtlOrdersError,
+        string $jtlOrderCustomerFilter,
+        string $jtlOrderMappedCustomerFilter,
+        array $productSkuAliasRows,
+        array $productSkuAliasProducts,
+        ?string $productSkuAliasError,
+        string $selectedSkuAliasCustomerId,
         array $productRows,
         ?string $productImportError,
         string $selectedProductCustomerId,
@@ -435,6 +473,79 @@ final class DashboardController
             margin-bottom: 14px;
         }
 
+        .jtl-order-filter-form {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto auto;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .button-link {
+            align-items: center;
+            display: inline-flex;
+            justify-content: center;
+            text-decoration: none;
+        }
+
+        .sku-alias-filter-form {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) auto;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .sku-alias-form {
+            display: grid;
+            grid-template-columns: minmax(170px, 1fr) minmax(170px, 1fr) minmax(140px, 180px) minmax(160px, 1fr) auto;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .sku-alias-row-form {
+            display: grid;
+            grid-template-columns: minmax(150px, 1fr) auto;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .alias-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .alias-chip {
+            background: #edf5ff;
+            border-radius: 999px;
+            color: var(--accent);
+            display: inline-block;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 8px;
+        }
+
+        .scroll-table {
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            margin-bottom: 14px;
+            max-height: min(620px, 62vh);
+            overflow: auto;
+        }
+
+        .scroll-table table {
+            min-width: 980px;
+        }
+
+        .scroll-table th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        .sku-alias-saved-scroll {
+            max-height: min(360px, 42vh);
+        }
+
         input, select, textarea {
             border: 1px solid var(--line);
             border-radius: 6px;
@@ -565,7 +676,7 @@ final class DashboardController
                 padding-top: 18px;
             }
 
-            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .settings-grid {
+            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .jtl-order-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -645,7 +756,7 @@ final class DashboardController
             <?php endif; ?>
 
             <?php if ($tab === 'jtl-orders'): ?>
-                <?= $this->renderJtlOrders($jtlOrders, $jtlOrdersError) ?>
+                <?= $this->renderJtlOrders($jtlOrders, $jtlOrdersError, $activeCustomers, $jtlOrderCustomerFilter, $jtlOrderMappedCustomerFilter) ?>
             <?php endif; ?>
 
             <?php if ($tab === 'fulfillment'): ?>
@@ -657,7 +768,15 @@ final class DashboardController
             <?php endif; ?>
 
             <?php if ($tab === 'customer-mappings'): ?>
-                <?= $this->renderCustomerMappings($orderSources, $customerMappings, $activeCustomers) ?>
+                <?= $this->renderCustomerMappings(
+                    $orderSources,
+                    $customerMappings,
+                    $activeCustomers,
+                    $productSkuAliasRows,
+                    $productSkuAliasProducts,
+                    $productSkuAliasError,
+                    $selectedSkuAliasCustomerId
+                ) ?>
             <?php endif; ?>
 
             <?php if ($tab === 'products'): ?>
@@ -850,9 +969,17 @@ final class DashboardController
 
     /**
      * @param array<int, array<string, mixed>> $jtlOrders
+     * @param array<int, array<string, mixed>> $activeCustomers
      */
-    private function renderJtlOrders(array $jtlOrders, ?string $error): string
+    private function renderJtlOrders(
+        array $jtlOrders,
+        ?string $error,
+        array $activeCustomers,
+        string $customerFilter,
+        string $mappedCustomerFilter
+    ): string
     {
+        $filtersActive = $customerFilter !== '' || $mappedCustomerFilter !== '';
         ob_start();
         ?>
             <section>
@@ -864,10 +991,27 @@ final class DashboardController
                     </form>
                 </div>
                 <div class="section-body">
+                    <form class="jtl-order-filter-form" action="<?= $this->e($this->url('/')) ?>" method="get">
+                        <input type="hidden" name="tab" value="jtl-orders">
+                        <input name="jtl_customer" value="<?= $this->e($customerFilter) ?>" placeholder="Filtrar por cliente orden">
+                        <select name="jtl_mapped_customer">
+                            <option value="">Cliente Packiyo mapeado</option>
+                            <option value="__unmapped__" <?= $mappedCustomerFilter === '__unmapped__' ? 'selected' : '' ?>>Sin mapeo</option>
+                            <?php foreach ($activeCustomers as $customer): ?>
+                                <?php $customerId = (string) ($customer['packiyo_customer_id'] ?? ''); ?>
+                                <option value="<?= $this->e($customerId) ?>" <?= $mappedCustomerFilter === $customerId ? 'selected' : '' ?>>
+                                    <?= $this->e($this->customerDisplayName($customer) . ' #' . $customerId) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button class="button" type="submit">Filtrar</button>
+                        <a class="button secondary button-link" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Limpiar</a>
+                    </form>
+
                     <?php if ($error !== null): ?>
                         <div class="empty">No se pudieron leer las ordenes nuevas de JTL: <?= $this->e($error) ?></div>
                     <?php elseif ($jtlOrders === []): ?>
-                        <div class="empty">Sin ordenes nuevas de JTL.</div>
+                        <div class="empty"><?= $filtersActive ? 'Sin ordenes nuevas de JTL para estos filtros.' : 'Sin ordenes nuevas de JTL.' ?></div>
                     <?php else: ?>
                         <table>
                             <thead>
@@ -1057,9 +1201,18 @@ final class DashboardController
      * @param array<int, array<string, mixed>> $orderSources
      * @param array<int, array<string, mixed>> $customerMappings
      * @param array<int, array<string, mixed>> $activeCustomers
+     * @param array<int, array<string, mixed>> $productSkuAliasRows
+     * @param array<int, array<string, mixed>> $productSkuAliasProducts
      */
-    private function renderCustomerMappings(array $orderSources, array $customerMappings, array $activeCustomers): string
-    {
+    private function renderCustomerMappings(
+        array $orderSources,
+        array $customerMappings,
+        array $activeCustomers,
+        array $productSkuAliasRows,
+        array $productSkuAliasProducts,
+        ?string $productSkuAliasError,
+        string $selectedSkuAliasCustomerId
+    ): string {
         ob_start();
         ?>
             <section>
@@ -1190,6 +1343,161 @@ final class DashboardController
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                    <?php endif; ?>
+                </div>
+            </section>
+
+            <section>
+                <div class="section-head">
+                    <h2>Mapeo de SKUs por cliente</h2>
+                </div>
+                <div class="section-body">
+                    <form class="sku-alias-filter-form" action="<?= $this->e($this->url('/')) ?>" method="get">
+                        <input type="hidden" name="tab" value="customer-mappings">
+                        <select name="sku_customer_id" required>
+                            <option value="">Cliente Packiyo</option>
+                            <?php foreach ($activeCustomers as $customer): ?>
+                                <?php $customerId = (string) ($customer['packiyo_customer_id'] ?? ''); ?>
+                                <option value="<?= $this->e($customerId) ?>" <?= $customerId === $selectedSkuAliasCustomerId ? 'selected' : '' ?>>
+                                    <?= $this->e($this->customerDisplayName($customer) . ' #' . $customerId) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button class="button" type="submit">Jalar productos Packiyo</button>
+                    </form>
+
+                    <?php if ($selectedSkuAliasCustomerId === ''): ?>
+                        <div class="empty">Selecciona un cliente para crear aliases como 769382487860 -> 0769382487860.</div>
+                    <?php elseif ($productSkuAliasError !== null): ?>
+                        <div class="empty">No se pudieron leer productos de Packiyo: <?= $this->e($productSkuAliasError) ?></div>
+                    <?php else: ?>
+                        <form class="sku-alias-form" action="<?= $this->e($this->url('/packiyo/sku-aliases')) ?>" method="post">
+                            <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedSkuAliasCustomerId) ?>">
+                            <input name="alias_sku" placeholder="SKU marketplace, ej. 769382487860" required>
+                            <input list="packiyo-sku-options" name="original_sku" placeholder="SKU original Packiyo" required>
+                            <input name="packiyo_product_id" placeholder="Product ID opcional">
+                            <input name="product_name" placeholder="Nombre opcional">
+                            <button class="button" type="submit">Guardar alias</button>
+                        </form>
+
+                        <datalist id="packiyo-sku-options">
+                            <?php foreach ($productSkuAliasProducts as $product): ?>
+                                <option value="<?= $this->e($product['sku'] ?? '') ?>" label="<?= $this->e(($product['name'] ?? '') . ' #' . ($product['packiyo_product_id'] ?? '')) ?>"></option>
+                            <?php endforeach; ?>
+                        </datalist>
+
+                        <?php if ($productSkuAliasProducts === []): ?>
+                            <div class="empty">No hay productos Packiyo para este cliente.</div>
+                        <?php else: ?>
+                            <form class="inline-form" action="<?= $this->e($this->url('/packiyo/sku-aliases/generate-bulk')) ?>" method="post" style="margin-bottom: 12px;">
+                                <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedSkuAliasCustomerId) ?>">
+                                <button class="button secondary" type="submit">Agregar comunes a todos</button>
+                            </form>
+                            <div class="scroll-table">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Producto Packiyo</th>
+                                            <th>SKU original</th>
+                                            <th>Aliases activos</th>
+                                            <th>Aliases comunes</th>
+                                            <th>Alias manual</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($productSkuAliasProducts as $product): ?>
+                                            <tr>
+                                                <td>
+                                                    <strong><?= $this->e(($product['name'] ?? '') ?: '-') ?></strong>
+                                                    <div class="muted">Packiyo #<?= $this->e($product['packiyo_product_id'] ?? '-') ?></div>
+                                                </td>
+                                                <td><?= $this->e($product['sku'] ?? '-') ?></td>
+                                                <td>
+                                                    <?php if (($product['aliases'] ?? []) === []): ?>
+                                                        <span class="muted">Sin aliases</span>
+                                                    <?php else: ?>
+                                                        <div class="alias-list">
+                                                            <?php foreach ($product['aliases'] as $alias): ?>
+                                                                <span class="alias-chip"><?= $this->e($alias['alias_sku'] ?? '') ?></span>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td>
+                                                    <?php if (($product['suggested_aliases'] ?? []) === []): ?>
+                                                        <span class="muted">Sin sugerencias nuevas</span>
+                                                    <?php else: ?>
+                                                        <div class="alias-list">
+                                                            <?php foreach ($product['suggested_aliases'] as $aliasSku): ?>
+                                                                <span class="alias-chip"><?= $this->e($aliasSku) ?></span>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                        <form class="inline-form" action="<?= $this->e($this->url('/packiyo/sku-aliases/generate')) ?>" method="post">
+                                                            <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedSkuAliasCustomerId) ?>">
+                                                            <input type="hidden" name="packiyo_product_id" value="<?= $this->e($product['packiyo_product_id'] ?? '') ?>">
+                                                            <input type="hidden" name="original_sku" value="<?= $this->e($product['sku'] ?? '') ?>">
+                                                            <input type="hidden" name="product_name" value="<?= $this->e($product['name'] ?? '') ?>">
+                                                            <button class="button secondary small" type="submit">Agregar comunes</button>
+                                                        </form>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td>
+                                                    <form class="sku-alias-row-form" action="<?= $this->e($this->url('/packiyo/sku-aliases')) ?>" method="post">
+                                                        <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedSkuAliasCustomerId) ?>">
+                                                        <input type="hidden" name="packiyo_product_id" value="<?= $this->e($product['packiyo_product_id'] ?? '') ?>">
+                                                        <input type="hidden" name="original_sku" value="<?= $this->e($product['sku'] ?? '') ?>">
+                                                        <input type="hidden" name="product_name" value="<?= $this->e($product['name'] ?? '') ?>">
+                                                        <input name="alias_sku" placeholder="SKU Temu" required>
+                                                        <button class="button small" type="submit">Guardar</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+
+                        <h3>Aliases guardados</h3>
+                        <?php if ($productSkuAliasRows === []): ?>
+                            <div class="empty">Sin aliases guardados para este cliente.</div>
+                        <?php else: ?>
+                            <div class="scroll-table sku-alias-saved-scroll">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Alias marketplace</th>
+                                            <th>SKU Packiyo</th>
+                                            <th>Producto</th>
+                                            <th>Estado</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($productSkuAliasRows as $alias): ?>
+                                            <tr>
+                                                <td><?= $this->e($alias['alias_sku'] ?? '-') ?></td>
+                                                <td><strong><?= $this->e($alias['original_sku'] ?? '-') ?></strong></td>
+                                                <td>
+                                                    <?= $this->e(($alias['product_name'] ?? '') ?: '-') ?>
+                                                    <?php if (($alias['packiyo_product_id'] ?? '') !== ''): ?>
+                                                        <div class="muted">Packiyo #<?= $this->e($alias['packiyo_product_id']) ?></div>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td><span class="status <?= ((int) ($alias['active'] ?? 0) === 1) ? 'active' : 'inactive' ?>"><?= ((int) ($alias['active'] ?? 0) === 1) ? 'active' : 'inactive' ?></span></td>
+                                                <td>
+                                                    <form class="inline-form" action="<?= $this->e($this->url('/packiyo/sku-aliases/delete')) ?>" method="post">
+                                                        <input type="hidden" name="id" value="<?= $this->e($alias['id'] ?? '') ?>">
+                                                        <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedSkuAliasCustomerId) ?>">
+                                                        <button class="button secondary small" type="submit">Eliminar</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
             </section>
@@ -1662,6 +1970,7 @@ final class DashboardController
                 'source' => $source['value'],
                 'source_type' => $source['label'],
                 'mapped' => $mapping !== null,
+                'packiyo_customer_id' => $mapping['packiyo_customer_id'] ?? '',
                 'packiyo_customer' => $mapping !== null
                     ? trim((string) (($mapping['packiyo_customer_name'] ?: '-') . ' #' . $mapping['packiyo_customer_id']))
                     : '',
@@ -1674,6 +1983,43 @@ final class DashboardController
         }
 
         return $rows;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterJtlOrderRows(array $rows, string $customerFilter, string $mappedCustomerFilter): array
+    {
+        $customerFilter = strtolower(trim($customerFilter));
+        $mappedCustomerFilter = trim($mappedCustomerFilter);
+
+        if ($customerFilter === '' && $mappedCustomerFilter === '') {
+            return $rows;
+        }
+
+        return array_values(array_filter(
+            $rows,
+            static function (array $row) use ($customerFilter, $mappedCustomerFilter): bool {
+                if ($customerFilter !== '') {
+                    $contact = strtolower((string) ($row['contact'] ?? ''));
+
+                    if (!str_contains($contact, $customerFilter)) {
+                        return false;
+                    }
+                }
+
+                if ($mappedCustomerFilter === '__unmapped__') {
+                    return empty($row['mapped']);
+                }
+
+                if ($mappedCustomerFilter !== '') {
+                    return (string) ($row['packiyo_customer_id'] ?? '') === $mappedCustomerFilter;
+                }
+
+                return true;
+            }
+        ));
     }
 
     /**

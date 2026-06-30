@@ -215,6 +215,24 @@ final class Database
                 KEY product_mappings_status_index (status)
             )"
         );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS packiyo_sku_aliases (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                packiyo_customer_id VARCHAR(100) NOT NULL,
+                packiyo_product_id VARCHAR(100) NULL,
+                original_sku VARCHAR(150) NOT NULL,
+                alias_sku VARCHAR(150) NOT NULL,
+                product_name VARCHAR(255) NULL,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                UNIQUE KEY packiyo_sku_aliases_customer_alias_unique (packiyo_customer_id, alias_sku),
+                KEY packiyo_sku_aliases_customer_original_index (packiyo_customer_id, original_sku),
+                KEY packiyo_sku_aliases_product_index (packiyo_product_id),
+                KEY packiyo_sku_aliases_active_index (active)
+            )"
+        );
     }
 
     private static function mysqlConnection(): mysqli

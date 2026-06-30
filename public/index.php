@@ -11,6 +11,7 @@ use App\Controllers\JtlRegistrationController;
 use App\Controllers\PackiyoCustomerController;
 use App\Controllers\PackiyoCustomerMappingController;
 use App\Controllers\ProductImportController;
+use App\Controllers\ProductSkuAliasController;
 use App\Controllers\SettingsController;
 use App\Controllers\SyncController;
 use App\Controllers\UserInvitationController;
@@ -58,6 +59,10 @@ try {
         '/packiyo/customers/deactivate' => (new PackiyoCustomerController())->deactivate(),
         '/packiyo/customer-mappings' => (new PackiyoCustomerMappingController())->store(),
         '/packiyo/customer-mappings/delete' => (new PackiyoCustomerMappingController())->delete(),
+        '/packiyo/sku-aliases' => (new ProductSkuAliasController())->store(),
+        '/packiyo/sku-aliases/generate' => (new ProductSkuAliasController())->generate(),
+        '/packiyo/sku-aliases/generate-bulk' => (new ProductSkuAliasController())->generateBulk(),
+        '/packiyo/sku-aliases/delete' => (new ProductSkuAliasController())->delete(),
         '/products/import' => (new ProductImportController())->import(),
         '/settings' => (new SettingsController())->save(),
         '/users/invite' => (new UserInvitationController())->create(),

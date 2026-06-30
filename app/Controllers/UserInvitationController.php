@@ -256,7 +256,7 @@ final class UserInvitationController
 
     private function absoluteUrl(string $path): string
     {
-        $baseUrl = rtrim((string) Config::get('app.base_url', ''), '/');
+        $baseUrl = $this->configuredBaseUrl();
 
         if ($baseUrl !== '') {
             return $baseUrl . '/' . ltrim($path, '/');
@@ -266,6 +266,32 @@ final class UserInvitationController
         $host = (string) ($_SERVER['HTTP_HOST'] ?? 'localhost');
 
         return $scheme . '://' . $host . $this->url($path);
+    }
+
+    private function configuredBaseUrl(): string
+    {
+        $baseUrl = trim((string) Config::get('app.base_url', ''));
+
+        if ($baseUrl === '') {
+            return '';
+        }
+
+        foreach (['hhttps://' => 'https://', 'hhttp://' => 'http://'] as $badPrefix => $goodPrefix) {
+            if (str_starts_with(strtolower($baseUrl), $badPrefix)) {
+                $baseUrl = $goodPrefix . substr($baseUrl, strlen($badPrefix));
+                break;
+            }
+        }
+
+        $baseUrl = rtrim($baseUrl, '/');
+        $path = (string) (parse_url($baseUrl, PHP_URL_PATH) ?? '');
+        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+
+        if (str_ends_with($path, '/public') && !str_ends_with($scriptDir, '/public')) {
+            $baseUrl = substr($baseUrl, 0, -7);
+        }
+
+        return rtrim($baseUrl, '/');
     }
 
     private function redirect(string $path): void

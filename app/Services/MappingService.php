@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\OrderMapping;
+use App\Models\ProductSkuAlias;
 use App\Support\Config;
 use RuntimeException;
 
@@ -12,7 +13,8 @@ final class MappingService
 {
     public function __construct(
         private readonly ?OrderMapping $mappings = null,
-        private readonly ?PackiyoCustomerResolver $customerResolver = null
+        private readonly ?PackiyoCustomerResolver $customerResolver = null,
+        private readonly ?ProductSkuAlias $skuAliases = null
     )
     {
     }
@@ -56,7 +58,24 @@ final class MappingService
         $marketplaceOrderNumber = $this->marketplaceOrderNumber($order);
         $packiyoOrderNumber = $numberOverride ?? $marketplaceOrderNumber ?? $jtlOrderNumber ?? $jtlOrderId;
         $externalId = $externalIdOverride ?? $marketplaceOrderNumber ?? $jtlOrderId;
-        $lineItems = $this->normalizeLineItems($items);
+        $customerResolver = $this->customerResolver();
+        $customerId = $customerResolver->resolveCustomerId($order);
+
+        if ($customerId === null && $customerResolver->inactiveCustomerId() !== null) {
+            throw new InactivePackiyoCustomerException(
+                'Packiyo customer ' . $customerResolver->inactiveCustomerId()
+                . ' is inactive in this app. JTL order will not be sent.'
+            );
+        }
+
+        if ($customerId === null && (bool) Config::get('packiyo.require_customer_mapping', true)) {
+            throw new RuntimeException(
+                'No Packiyo customer mapping matched this JTL order. Candidates: '
+                . ($customerResolver->describeCandidates($order) ?: 'none')
+            );
+        }
+
+        $lineItems = $this->normalizeLineItems($items, $customerId);
 
         if ($lineItemExternalIdSuffix !== null && $lineItemExternalIdSuffix !== '') {
             foreach ($lineItems as $index => $lineItem) {
@@ -91,9 +110,6 @@ final class MappingService
             ],
         ];
 
-        $customerResolver = $this->customerResolver();
-        $customerId = $customerResolver->resolveCustomerId($order);
-
         if ($customerId !== null && $customerId !== '') {
             $payload['data']['relationships']['customer'] = [
                 'data' => [
@@ -101,16 +117,6 @@ final class MappingService
                     'id' => $customerId,
                 ],
             ];
-        } elseif ($customerResolver->inactiveCustomerId() !== null) {
-            throw new InactivePackiyoCustomerException(
-                'Packiyo customer ' . $customerResolver->inactiveCustomerId()
-                . ' is inactive in this app. JTL order will not be sent.'
-            );
-        } elseif ((bool) Config::get('packiyo.require_customer_mapping', true)) {
-            throw new RuntimeException(
-                'No Packiyo customer mapping matched this JTL order. Candidates: '
-                . ($customerResolver->describeCandidates($order) ?: 'none')
-            );
         }
 
         return $payload;
@@ -274,14 +280,15 @@ final class MappingService
     }
 
     /** @param array<string, mixed> $item */
-    private function normalizeLineItem(array $item): array
+    private function normalizeLineItem(array $item, ?string $packiyoCustomerId): array
     {
         $name = $this->firstString($item, ['name', 'Name', 'title', 'Title', 'description', 'Description', 'cName', 'CName']);
         $sku = $this->firstString($item, ['sku', 'SKU', 'articleNumber', 'ArticleNumber', 'itemNumber', 'ItemNumber', 'cArtNr', 'CArtNr'])
             ?? ('JTL-LINE-' . (string) ($this->firstValue($item, ['id', 'Id']) ?? uniqid('', false)));
+        $resolvedSku = $this->resolvePackiyoSku($packiyoCustomerId, $sku);
 
         return [
-            'sku' => $sku,
+            'sku' => $resolvedSku,
             'name' => $name,
             'quantity' => (float) ($this->firstValue($item, ['quantity', 'Quantity', 'qty', 'Qty', 'amount', 'Amount', 'nAnzahl', 'NAnzahl']) ?? 1),
             'external_id' => $this->firstString($item, ['external_id', 'externalId', 'ExternalId', 'id', 'Id', 'positionId', 'PositionId'])
@@ -309,7 +316,7 @@ final class MappingService
      * @param array<int, array<string, mixed>> $items
      * @return array<int, array<string, mixed>>
      */
-    private function normalizeLineItems(array $items): array
+    private function normalizeLineItems(array $items, ?string $packiyoCustomerId): array
     {
         $lineItems = [];
 
@@ -318,11 +325,11 @@ final class MappingService
                 continue;
             }
 
-            $lineItems[] = $this->normalizeLineItem($item);
+            $lineItems[] = $this->normalizeLineItem($item, $packiyoCustomerId);
         }
 
         if ($lineItems === [] && $items !== []) {
-            $lineItems[] = $this->normalizeLineItem($items[0]);
+            $lineItems[] = $this->normalizeLineItem($items[0], $packiyoCustomerId);
         }
 
         if ($lineItems === []) {
@@ -330,6 +337,15 @@ final class MappingService
         }
 
         return $lineItems;
+    }
+
+    private function resolvePackiyoSku(?string $packiyoCustomerId, string $sku): string
+    {
+        if ($packiyoCustomerId === null || trim($packiyoCustomerId) === '' || trim($sku) === '') {
+            return $sku;
+        }
+
+        return $this->skuAliasModel()->resolve($packiyoCustomerId, $sku) ?? $sku;
     }
 
     /**
@@ -517,6 +533,11 @@ final class MappingService
     private function customerResolver(): PackiyoCustomerResolver
     {
         return $this->customerResolver ?? new PackiyoCustomerResolver();
+    }
+
+    private function skuAliasModel(): ProductSkuAlias
+    {
+        return $this->skuAliases ?? new ProductSkuAlias();
     }
 }
 
