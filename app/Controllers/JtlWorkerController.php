@@ -41,7 +41,7 @@ final class JtlWorkerController
 
             (new Logger())->info('jtl_worker', $message . ' Response: ' . $this->shortJson($response));
         } catch (\Throwable $exception) {
-            $message = 'No se pudo iniciar el JTL Worker abgleich: ' . $exception->getMessage();
+            $message = 'No se pudo iniciar el JTL Worker abgleich: ' . $this->friendlyError($exception->getMessage());
             (new Logger())->error('jtl_worker', $message);
         }
 
@@ -167,6 +167,19 @@ final class JtlWorkerController
         $value = $_POST[$key] ?? '';
 
         return is_scalar($value) ? trim((string) $value) : '';
+    }
+
+    private function friendlyError(string $message): string
+    {
+        if (
+            str_contains($message, 'FormatNotParsable')
+            || str_contains($message, 'Guid string should only contain hexadecimal')
+        ) {
+            return $message
+                . ' Tip: usa los endpoints versionados /api/eazybusiness/v1/workers, /api/eazybusiness/v1/workers/{id} y /api/eazybusiness/v1/workers/status en Ajustes.';
+        }
+
+        return $message;
     }
 
     /** @param array<string, mixed> $data */

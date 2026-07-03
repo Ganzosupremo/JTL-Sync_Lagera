@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Clients\JtlRegistrationClient;
 use App\Models\JtlApiCredential;
+use App\Support\HttpException;
 use App\Support\Logger;
 use RuntimeException;
 
@@ -20,7 +21,23 @@ final class JtlRegistrationService
 
     public function start(): string
     {
-        $response = $this->registrationClient()->startRegistration();
+        try {
+            $response = $this->registrationClient()->startRegistration();
+        } catch (HttpException $exception) {
+            if (
+                $exception->statusCode() === 403
+                && str_contains($exception->getMessage(), 'NoActiveRegistration')
+            ) {
+                throw new RuntimeException(
+                    'JTL no tiene activa la ventana/handler de registro. Abre JTL-Wawi en la PC del tunnel, ve a JTL-Wawi API Anwendungsregistrierungen, pulsa Add si aplica, deja esa ventana abierta y vuelve a registrar la app.',
+                    0,
+                    $exception
+                );
+            }
+
+            throw $exception;
+        }
+
         $registrationRequestId = $this->firstString($response, [
             'registrationRequestId',
             'RegistrationRequestId',

@@ -60,7 +60,21 @@ final class JtlClient
             return [];
         }
 
-        return $this->http->get($endpoint);
+        $lastException = null;
+
+        foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
+            try {
+                return $this->http->get($candidate);
+            } catch (HttpException $exception) {
+                $lastException = $exception;
+
+                if (!$this->shouldTryWorkerEndpointFallback($exception)) {
+                    throw $exception;
+                }
+            }
+        }
+
+        throw $lastException ?? new RuntimeException('Unable to read JTL worker status.');
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -72,7 +86,25 @@ final class JtlClient
             return [];
         }
 
-        $response = $this->http->get($endpoint);
+        $lastException = null;
+        $response = null;
+
+        foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
+            try {
+                $response = $this->http->get($candidate);
+                break;
+            } catch (HttpException $exception) {
+                $lastException = $exception;
+
+                if (!$this->shouldTryWorkerEndpointFallback($exception)) {
+                    throw $exception;
+                }
+            }
+        }
+
+        if ($response === null) {
+            throw $lastException ?? new RuntimeException('Unable to read JTL worker syncs.');
+        }
 
         if (array_is_list($response)) {
             return array_values(array_map(
@@ -108,7 +140,21 @@ final class JtlClient
             $options['headers'] = ['Content-Type' => 'application/json'];
         }
 
-        return $this->http->request($method, $endpoint, $options);
+        $lastException = null;
+
+        foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
+            try {
+                return $this->http->request($method, $candidate, $options);
+            } catch (HttpException $exception) {
+                $lastException = $exception;
+
+                if (!$this->shouldTryWorkerEndpointFallback($exception)) {
+                    throw $exception;
+                }
+            }
+        }
+
+        throw $lastException ?? new RuntimeException('Unable to start JTL worker sync.');
     }
 
     /** @return array<string, mixed> */
@@ -335,6 +381,39 @@ final class JtlClient
             rawurlencode($syncId),
             $endpoint
         );
+    }
+
+    /** @return array<int, string> */
+    private function workerEndpointCandidates(string $endpoint): array
+    {
+        $candidates = [$endpoint];
+
+        if (str_contains($endpoint, '/api/eazybusiness/workers')) {
+            $candidates[] = str_replace('/api/eazybusiness/workers', '/api/eazybusiness/v1/workers', $endpoint);
+        }
+
+        if (str_contains($endpoint, '/api/eazybusiness/v1/workers')) {
+            $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/workers', $endpoint);
+        }
+
+        return array_values(array_unique($candidates));
+    }
+
+    private function shouldTryWorkerEndpointFallback(HttpException $exception): bool
+    {
+        if (in_array($exception->statusCode(), [404, 405], true)) {
+            return true;
+        }
+
+        if ($exception->statusCode() !== 400) {
+            return false;
+        }
+
+        $message = strtolower($exception->getMessage());
+
+        return str_contains($message, 'formatnotparsable')
+            || str_contains($message, 'guid string')
+            || str_contains($message, "property 'reference'");
     }
 
     private function workerSyncBody(string $syncId, string $syncName): ?string
