@@ -72,7 +72,18 @@ final class JtlClient
             return [];
         }
 
-        return $this->collection($this->http->get($endpoint));
+        $response = $this->http->get($endpoint);
+
+        if (array_is_list($response)) {
+            return array_values(array_map(
+                static fn (mixed $item): array => is_array($item)
+                    ? $item
+                    : ['id' => (string) $item, 'name' => (string) $item],
+                $response
+            ));
+        }
+
+        return $this->collection($response);
     }
 
     /** @return array<string, mixed> */

@@ -21,7 +21,12 @@ final class JtlWorkerController
         Database::migrate();
 
         $syncId = $this->postedString('worker_sync_id');
+        $manualSyncId = $this->postedString('worker_sync_id_manual');
         $syncName = $this->postedString('worker_sync_name');
+
+        if ($syncId === '' && $manualSyncId !== '') {
+            $syncId = $manualSyncId;
+        }
 
         try {
             $response = (new JtlClient())->startWorkerSync($syncId, $syncName);

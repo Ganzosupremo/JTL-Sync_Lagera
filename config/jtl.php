@@ -40,7 +40,7 @@ return [
     'worker_endpoint' => Setting::get('JTL_WORKER_ENDPOINT', '/api/eazybusiness/workers/{id}'),
     'worker_status_endpoint' => Setting::get('JTL_WORKER_STATUS_ENDPOINT', '/api/eazybusiness/workers/status'),
     'worker_sync_method' => Setting::get('JTL_WORKER_SYNC_METHOD', 'POST'),
-    'worker_sync_body_template' => Setting::get('JTL_WORKER_SYNC_BODY_TEMPLATE', ''),
+    'worker_sync_body_template' => Setting::get('JTL_WORKER_SYNC_BODY_TEMPLATE', '{}'),
     'items_endpoint' => Setting::get('JTL_ITEMS_ENDPOINT', '/api/eazybusiness/items'),
     'item_endpoint' => Setting::get('JTL_ITEM_ENDPOINT', '/api/eazybusiness/items/{id}'),
     'stocks_endpoint' => Setting::get('JTL_STOCKS_ENDPOINT', '/api/eazybusiness/stocks'),

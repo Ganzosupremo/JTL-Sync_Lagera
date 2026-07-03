@@ -505,7 +505,7 @@ final class DashboardController
 
         .jtl-worker-form {
             display: grid;
-            grid-template-columns: minmax(240px, 1fr) auto auto;
+            grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px) auto auto;
             gap: 10px;
             margin-bottom: 8px;
         }
@@ -1044,7 +1044,7 @@ final class DashboardController
                 <?php endif; ?>
 
                 <form class="jtl-worker-form" action="<?= $this->e($this->url('/jtl/workers/start')) ?>" method="post">
-                    <select name="worker_sync_id" required>
+                    <select name="worker_sync_id">
                         <option value="">Seleccionar abgleich</option>
                         <?php foreach ($workerSyncs as $sync): ?>
                             <?php $syncId = $this->workerSyncId($sync); ?>
@@ -1054,9 +1054,14 @@ final class DashboardController
                             <option value="<?= $this->e($syncId) ?>"><?= $this->e($this->workerSyncLabel($sync)) ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <input name="worker_sync_id_manual" placeholder="Sync ID manual">
                     <button class="button" type="submit">Iniciar abgleich</button>
                     <a class="button secondary button-link" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Actualizar estado</a>
                 </form>
+
+                <?php if ($workerSyncs !== []): ?>
+                    <div class="field-hint">Syncs raw: <?= $this->e($this->shortJson(['items' => $workerSyncs], 420)) ?></div>
+                <?php endif; ?>
 
                 <?php if ($workerStatus !== null && $workerStatus !== []): ?>
                     <div class="field-hint">Status raw: <?= $this->e($this->shortJson($workerStatus)) ?></div>
@@ -2248,7 +2253,7 @@ final class DashboardController
         ]);
 
         if ($name === null) {
-            return $id !== '' ? '#' . $id : $this->shortJson($channel, 80);
+            return $id !== '' ? '#' . $id : $this->shortJson($sync, 80);
         }
 
         return $id !== '' ? $name . ' #' . $id : $name;
