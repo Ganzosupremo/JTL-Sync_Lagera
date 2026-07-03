@@ -63,6 +63,6 @@ return [
     'provider_website' => Setting::get('JTL_PROVIDER_WEBSITE', 'https://3plgermany.com'),
     'cloudflare_access_client_id' => Setting::get('JTL_CF_ACCESS_CLIENT_ID', ''),
     'cloudflare_access_client_secret' => Setting::get('JTL_CF_ACCESS_CLIENT_SECRET', ''),
-    'mandatory_scopes' => array_values(array_filter(array_map('trim', explode(',', (string) Setting::get('JTL_MANDATORY_API_SCOPES', 'salesorders.read,salesorders.write,items.read,deliverynotes.read,deliverynotes.write'))))),
+    'mandatory_scopes' => array_values(array_filter(array_map('trim', explode(',', (string) Setting::get('JTL_MANDATORY_API_SCOPES', 'salesorders.read,salesorders.write,items.read,deliverynotes.read,deliverynotes.write,worker.getworkersyncs,system.worker.read'))))),
     'optional_scopes' => array_values(array_filter(array_map('trim', explode(',', (string) Setting::get('JTL_OPTIONAL_API_SCOPES', ''))))),
 ];

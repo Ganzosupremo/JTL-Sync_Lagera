@@ -48,7 +48,7 @@ final class DashboardController
         $tab = $this->activeTab($_GET['tab'] ?? 'overview');
         $jtlOrders = [];
         $jtlOrdersError = null;
-        $jtlSalesChannels = [];
+        $jtlWorkerSyncs = [];
         $jtlWorkerStatus = null;
         $jtlWorkerError = null;
         $productRows = [];
@@ -77,9 +77,9 @@ final class DashboardController
 
         if ($tab === 'jtl-orders') {
             try {
-                $jtlSalesChannels = $jtl->getSalesChannels();
+                $jtlWorkerSyncs = $jtl->getWorkerSyncs();
             } catch (\Throwable $exception) {
-                $jtlWorkerError = 'Sales channels: ' . $exception->getMessage();
+                $jtlWorkerError = 'Worker syncs: ' . $exception->getMessage();
             }
 
             try {
@@ -133,7 +133,7 @@ final class DashboardController
             $fulfillmentSyncs->recent(50),
             $jtlOrders,
             $jtlOrdersError,
-            $jtlSalesChannels,
+            $jtlWorkerSyncs,
             $jtlWorkerStatus,
             $jtlWorkerError,
             $jtlOrderCustomerFilter,
@@ -165,7 +165,7 @@ final class DashboardController
      * @param array<string, mixed>|null $fulfillmentState
      * @param array<int, array<string, mixed>> $fulfillmentRows
      * @param array<int, array<string, mixed>> $jtlOrders
-     * @param array<int, array<string, mixed>> $jtlSalesChannels
+     * @param array<int, array<string, mixed>> $jtlWorkerSyncs
      * @param array<string, mixed>|null $jtlWorkerStatus
      * @param string $jtlOrderCustomerFilter
      * @param string $jtlOrderMappedCustomerFilter
@@ -189,7 +189,7 @@ final class DashboardController
         array $fulfillmentRows,
         array $jtlOrders,
         ?string $jtlOrdersError,
-        array $jtlSalesChannels,
+        array $jtlWorkerSyncs,
         ?array $jtlWorkerStatus,
         ?string $jtlWorkerError,
         string $jtlOrderCustomerFilter,
@@ -796,7 +796,7 @@ final class DashboardController
                 <?= $this->renderJtlOrders(
                     $jtlOrders,
                     $jtlOrdersError,
-                    $jtlSalesChannels,
+                    $jtlWorkerSyncs,
                     $jtlWorkerStatus,
                     $jtlWorkerError,
                     $activeCustomers,
@@ -1014,10 +1014,10 @@ final class DashboardController
     }
 
     /**
-     * @param array<int, array<string, mixed>> $salesChannels
+     * @param array<int, array<string, mixed>> $workerSyncs
      * @param array<string, mixed>|null $workerStatus
      */
-    private function renderJtlWorkerPanel(array $salesChannels, ?array $workerStatus, ?string $error): string
+    private function renderJtlWorkerPanel(array $workerSyncs, ?array $workerStatus, ?string $error): string
     {
         ob_start();
         ?>
@@ -1030,12 +1030,12 @@ final class DashboardController
                         <strong><?= $this->e($this->workerStatusLabel($workerStatus)) ?></strong>
                     </div>
                     <div class="detail">
-                        <span>Sales channels</span>
-                        <strong><?= $this->e((string) count($salesChannels)) ?></strong>
+                        <span>Syncs disponibles</span>
+                        <strong><?= $this->e((string) count($workerSyncs)) ?></strong>
                     </div>
                     <div class="detail">
                         <span>Endpoint</span>
-                        <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'POST') . ' ' . Config::get('jtl.workers_endpoint', '/api/eazybusiness/workers')) ?></strong>
+                        <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'POST') . ' ' . Config::get('jtl.worker_endpoint', '/api/eazybusiness/workers/{id}')) ?></strong>
                     </div>
                 </div>
 
@@ -1044,14 +1044,14 @@ final class DashboardController
                 <?php endif; ?>
 
                 <form class="jtl-worker-form" action="<?= $this->e($this->url('/jtl/workers/start')) ?>" method="post">
-                    <select name="sales_channel_id">
-                        <option value="">Todos / segun JTL Worker</option>
-                        <?php foreach ($salesChannels as $channel): ?>
-                            <?php $channelId = $this->salesChannelId($channel); ?>
-                            <?php if ($channelId === '') {
+                    <select name="worker_sync_id" required>
+                        <option value="">Seleccionar abgleich</option>
+                        <?php foreach ($workerSyncs as $sync): ?>
+                            <?php $syncId = $this->workerSyncId($sync); ?>
+                            <?php if ($syncId === '') {
                                 continue;
                             } ?>
-                            <option value="<?= $this->e($channelId) ?>"><?= $this->e($this->salesChannelLabel($channel)) ?></option>
+                            <option value="<?= $this->e($syncId) ?>"><?= $this->e($this->workerSyncLabel($sync)) ?></option>
                         <?php endforeach; ?>
                     </select>
                     <button class="button" type="submit">Iniciar abgleich</button>
@@ -1069,13 +1069,13 @@ final class DashboardController
 
     /**
      * @param array<int, array<string, mixed>> $jtlOrders
-     * @param array<int, array<string, mixed>> $jtlSalesChannels
+     * @param array<int, array<string, mixed>> $jtlWorkerSyncs
      * @param array<int, array<string, mixed>> $activeCustomers
      */
     private function renderJtlOrders(
         array $jtlOrders,
         ?string $error,
-        array $jtlSalesChannels,
+        array $jtlWorkerSyncs,
         ?array $jtlWorkerStatus,
         ?string $jtlWorkerError,
         array $activeCustomers,
@@ -1095,7 +1095,7 @@ final class DashboardController
                     </form>
                 </div>
                 <div class="section-body">
-                    <?= $this->renderJtlWorkerPanel($jtlSalesChannels, $jtlWorkerStatus, $jtlWorkerError) ?>
+                    <?= $this->renderJtlWorkerPanel($jtlWorkerSyncs, $jtlWorkerStatus, $jtlWorkerError) ?>
 
                     <form class="jtl-order-filter-form" action="<?= $this->e($this->url('/')) ?>" method="get">
                         <input type="hidden" name="tab" value="jtl-orders">
@@ -2210,12 +2210,14 @@ final class DashboardController
             ?? $this->shortJson($status, 80);
     }
 
-    /** @param array<string, mixed> $channel */
-    private function salesChannelId(array $channel): string
+    /** @param array<string, mixed> $sync */
+    private function workerSyncId(array $sync): string
     {
-        return $this->firstScalar($channel, [
-            'salesChannelId',
-            'SalesChannelId',
+        return $this->firstScalar($sync, [
+            'syncId',
+            'SyncId',
+            'workerSyncId',
+            'WorkerSyncId',
             'id',
             'Id',
             'ID',
@@ -2226,17 +2228,21 @@ final class DashboardController
         ]) ?? '';
     }
 
-    /** @param array<string, mixed> $channel */
-    private function salesChannelLabel(array $channel): string
+    /** @param array<string, mixed> $sync */
+    private function workerSyncLabel(array $sync): string
     {
-        $id = $this->salesChannelId($channel);
-        $name = $this->firstScalar($channel, [
+        $id = $this->workerSyncId($sync);
+        $name = $this->firstScalar($sync, [
             'name',
             'Name',
+            'syncName',
+            'SyncName',
             'displayName',
             'DisplayName',
             'description',
             'Description',
+            'title',
+            'Title',
             'platform',
             'Platform',
         ]);

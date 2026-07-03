@@ -63,14 +63,30 @@ final class JtlClient
         return $this->http->get($endpoint);
     }
 
-    /** @return array<string, mixed> */
-    public function startWorkerSync(string $salesChannelId = '', string $salesChannelName = ''): array
+    /** @return array<int, array<string, mixed>> */
+    public function getWorkerSyncs(): array
     {
-        $method = strtoupper((string) ($this->config['worker_sync_method'] ?? 'POST'));
         $endpoint = (string) ($this->config['workers_endpoint'] ?? '');
 
         if ($endpoint === '') {
+            return [];
+        }
+
+        return $this->collection($this->http->get($endpoint));
+    }
+
+    /** @return array<string, mixed> */
+    public function startWorkerSync(string $syncId, string $syncName = ''): array
+    {
+        $method = strtoupper((string) ($this->config['worker_sync_method'] ?? 'POST'));
+        $endpoint = $this->workerSyncEndpoint($syncId);
+
+        if ($endpoint === '') {
             throw new RuntimeException('JTL worker endpoint is not configured.');
+        }
+
+        if ($syncId === '') {
+            throw new RuntimeException('Select a JTL worker sync first.');
         }
 
         if (!in_array($method, ['POST', 'PUT', 'PATCH', 'GET'], true)) {
@@ -78,7 +94,7 @@ final class JtlClient
         }
 
         $options = [];
-        $body = $this->workerSyncBody($salesChannelId, $salesChannelName);
+        $body = $this->workerSyncBody($syncId, $syncName);
 
         if ($body !== null) {
             $options['body'] = $body;
@@ -303,7 +319,18 @@ final class JtlClient
         return str_replace('{id}', rawurlencode($id), (string) ($this->config['delivery_note_packages_endpoint'] ?? ''));
     }
 
-    private function workerSyncBody(string $salesChannelId, string $salesChannelName): ?string
+    private function workerSyncEndpoint(string $syncId): string
+    {
+        $endpoint = (string) ($this->config['worker_endpoint'] ?? '');
+
+        return str_replace(
+            ['{id}', '{syncId}', '{sync_id}'],
+            rawurlencode($syncId),
+            $endpoint
+        );
+    }
+
+    private function workerSyncBody(string $syncId, string $syncName): ?string
     {
         $template = trim((string) ($this->config['worker_sync_body_template'] ?? ''));
 
@@ -312,8 +339,13 @@ final class JtlClient
         }
 
         $body = str_replace(
-            ['{{sales_channel_id}}', '{{sales_channel_name}}'],
-            [$this->jsonStringFragment($salesChannelId), $this->jsonStringFragment($salesChannelName)],
+            ['{{sync_id}}', '{{sync_name}}', '{{sales_channel_id}}', '{{sales_channel_name}}'],
+            [
+                $this->jsonStringFragment($syncId),
+                $this->jsonStringFragment($syncName),
+                $this->jsonStringFragment($syncId),
+                $this->jsonStringFragment($syncName),
+            ],
             $template
         );
 

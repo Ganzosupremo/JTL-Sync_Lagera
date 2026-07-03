@@ -20,15 +20,15 @@ final class JtlWorkerController
 
         Database::migrate();
 
-        $salesChannelId = $this->postedString('sales_channel_id');
-        $salesChannelName = $this->postedString('sales_channel_name');
+        $syncId = $this->postedString('worker_sync_id');
+        $syncName = $this->postedString('worker_sync_name');
 
         try {
-            $response = (new JtlClient())->startWorkerSync($salesChannelId, $salesChannelName);
+            $response = (new JtlClient())->startWorkerSync($syncId, $syncName);
             $message = 'JTL Worker abgleich iniciado.';
 
-            if ($salesChannelId !== '') {
-                $message .= ' Sales channel #' . $salesChannelId . '.';
+            if ($syncId !== '') {
+                $message .= ' Sync #' . $syncId . '.';
             }
 
             (new Logger())->info('jtl_worker', $message . ' Response: ' . $this->shortJson($response));
