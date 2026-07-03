@@ -22,6 +22,28 @@ $apiVersionCandidates = array_values(array_filter(array_map(
     'trim',
     explode(',', (string) Setting::get('JTL_API_VERSION_CANDIDATES', '1.0,2.0'))
 )));
+$defaultMandatoryScopes = [
+    'salesorders.read',
+    'salesorders.write',
+    'items.read',
+    'items.write',
+    'item.queryitems',
+    'item.createitem',
+    'item.updateitem',
+    'inventories.read',
+    'inventories.write',
+    'stock.querystocksperitem',
+    'stock.stockadjustment',
+    'deliverynotes.read',
+    'deliverynotes.write',
+    'worker.getworkersyncs',
+    'system.worker.read',
+];
+$configuredMandatoryScopes = array_values(array_filter(array_map(
+    'trim',
+    explode(',', (string) Setting::get('JTL_MANDATORY_API_SCOPES', implode(',', $defaultMandatoryScopes)))
+)));
+$mandatoryScopes = array_values(array_unique(array_merge($configuredMandatoryScopes, $defaultMandatoryScopes)));
 
 return [
     'base_url' => Setting::get('JTL_BASE_URL', 'https://127.0.0.1:5883'),
@@ -63,6 +85,6 @@ return [
     'provider_website' => Setting::get('JTL_PROVIDER_WEBSITE', 'https://3plgermany.com'),
     'cloudflare_access_client_id' => Setting::get('JTL_CF_ACCESS_CLIENT_ID', ''),
     'cloudflare_access_client_secret' => Setting::get('JTL_CF_ACCESS_CLIENT_SECRET', ''),
-    'mandatory_scopes' => array_values(array_filter(array_map('trim', explode(',', (string) Setting::get('JTL_MANDATORY_API_SCOPES', 'salesorders.read,salesorders.write,items.read,deliverynotes.read,deliverynotes.write,worker.getworkersyncs,system.worker.read'))))),
+    'mandatory_scopes' => $mandatoryScopes,
     'optional_scopes' => array_values(array_filter(array_map('trim', explode(',', (string) Setting::get('JTL_OPTIONAL_API_SCOPES', ''))))),
 ];

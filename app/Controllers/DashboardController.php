@@ -1041,6 +1041,9 @@ final class DashboardController
 
                 <?php if ($error !== null): ?>
                     <div class="empty">No se pudo leer el estado del worker: <?= $this->e($error) ?></div>
+                    <?php if ($this->looksLikeForbiddenWorkerError($error)): ?>
+                        <div class="notice">JTL respondio 403 para Worker. El API token actual probablemente no tiene los scopes <strong>worker.getworkersyncs</strong> y <strong>system.worker.read</strong>. Guarda ajustes y registra la app de nuevo en JTL-Wawi para generar un token nuevo.</div>
+                    <?php endif; ?>
                 <?php endif; ?>
 
                 <form class="jtl-worker-form" action="<?= $this->e($this->url('/jtl/workers/start')) ?>" method="post">
@@ -2213,6 +2216,11 @@ final class DashboardController
 
         return $this->firstScalar($status, ['status', 'Status', 'state', 'State', 'workerStatus', 'WorkerStatus'])
             ?? $this->shortJson($status, 80);
+    }
+
+    private function looksLikeForbiddenWorkerError(string $error): bool
+    {
+        return str_contains($error, 'HTTP 403');
     }
 
     /** @param array<string, mixed> $sync */
