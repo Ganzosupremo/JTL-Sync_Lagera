@@ -51,6 +51,27 @@ final class JtlRegistrationController
         }
     }
 
+    public function reset(): void
+    {
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
+            return;
+        }
+
+        Database::migrate();
+
+        try {
+            $cancelled = (new JtlRegistrationService())->resetPending();
+            $this->respond([
+                'message' => $cancelled
+                    ? 'Solicitud pendiente descartada localmente. Ya puedes registrar la app de nuevo.'
+                    : 'No habia solicitud pendiente para descartar.',
+            ]);
+        } catch (Throwable $exception) {
+            $this->respondError($exception);
+        }
+    }
+
     /** @param array<string, mixed> $payload */
     private function respond(array $payload): void
     {

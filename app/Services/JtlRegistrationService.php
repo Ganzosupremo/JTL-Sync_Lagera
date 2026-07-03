@@ -44,6 +44,17 @@ final class JtlRegistrationService
         return $registrationRequestId;
     }
 
+    public function resetPending(): bool
+    {
+        $cancelled = $this->credentialModel()->cancelLatestPending();
+
+        if ($cancelled) {
+            $this->log()->info('jtl_registration', 'Pending JTL registration request was cancelled locally.');
+        }
+
+        return $cancelled;
+    }
+
     /** @return array{registration_request_id: string, granted_scopes: array<int, string>} */
     public function complete(): array
     {

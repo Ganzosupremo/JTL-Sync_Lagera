@@ -30,12 +30,7 @@ final class JtlApiCredential
         $statement = $this->connection()->prepare(
             "SELECT * FROM jtl_api_credentials
             WHERE registration_request_id IS NOT NULL
-            AND (
-                status = 'pending'
-                OR api_key IS NULL
-                OR api_key = ''
-                OR api_key = 'Array'
-            )
+            AND status = 'pending'
             ORDER BY COALESCE(approved_at, requested_at, created_at) DESC, id DESC
             LIMIT 1"
         );
@@ -43,6 +38,29 @@ final class JtlApiCredential
         $row = $statement->get_result()->fetch_assoc();
 
         return is_array($row) ? $row : null;
+    }
+
+    public function cancelLatestPending(): bool
+    {
+        $pending = $this->latestPending();
+
+        if ($pending === null || empty($pending['id'])) {
+            return false;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $status = 'cancelled';
+        $id = (int) $pending['id'];
+        $statement = $this->connection()->prepare(
+            'UPDATE jtl_api_credentials
+            SET status = ?, updated_at = ?
+            WHERE id = ? AND status = ?'
+        );
+        $pendingStatus = 'pending';
+        $statement->bind_param('ssis', $status, $now, $id, $pendingStatus);
+        $statement->execute();
+
+        return $statement->affected_rows > 0;
     }
 
     public function currentApiKey(): ?string
@@ -143,7 +161,7 @@ final class JtlApiCredential
             return 'configured';
         }
 
-        if (($latest['status'] ?? '') === 'pending' || !$this->hasUsableApiKey($latest)) {
+        if (($latest['status'] ?? '') === 'pending') {
             return 'registration_pending';
         }
 

@@ -55,6 +55,7 @@ try {
         '/jtl/order-sources/detect' => (new JtlOrderSourceController())->detect(),
         '/jtl/register' => (new JtlRegistrationController())->start(),
         '/jtl/register/complete' => (new JtlRegistrationController())->complete(),
+        '/jtl/register/reset' => (new JtlRegistrationController())->reset(),
         '/jtl/workers/start' => (new JtlWorkerController())->start(),
         '/packiyo/customers/sync' => (new PackiyoCustomerController())->sync(),
         '/packiyo/customers/activate' => (new PackiyoCustomerController())->activate(),

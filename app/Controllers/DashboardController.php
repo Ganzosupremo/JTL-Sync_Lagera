@@ -388,6 +388,11 @@ final class DashboardController
             color: #475467;
         }
 
+        .status.registration_cancelled {
+            background: #f3f4f6;
+            color: #475467;
+        }
+
         .status.missing_config {
             background: #fff4df;
             color: var(--warn);
@@ -893,11 +898,15 @@ final class DashboardController
                             <form action="<?= $this->e($this->url('/jtl/register/complete')) ?>" method="post">
                                 <button class="button" type="submit">Obtener API token</button>
                             </form>
-                            <form action="<?= $this->e($this->url('/jtl/register')) ?>" method="post">
-                                <button class="button secondary" type="submit">Reiniciar registro</button>
+                            <form action="<?= $this->e($this->url('/jtl/register/reset')) ?>" method="post">
+                                <button class="button secondary" type="submit">Descartar pendiente local</button>
                             </form>
                         <?php endif; ?>
                     </div>
+
+                    <?php if ($this->registrationStatus($registration) === 'registration_pending'): ?>
+                        <div class="field-hint">Si cancelaste la solicitud en JTL-Wawi o necesitas cambiar scopes, descarta la pendiente local y luego registra la app de nuevo.</div>
+                    <?php endif; ?>
                 </div>
             </section>
         <?php
@@ -2499,8 +2508,12 @@ final class DashboardController
             return 'configured';
         }
 
-        if (($registration['status'] ?? '') === 'pending' || !$this->hasUsableApiKey($registration)) {
+        if (($registration['status'] ?? '') === 'pending') {
             return 'registration_pending';
+        }
+
+        if (($registration['status'] ?? '') === 'cancelled') {
+            return 'registration_cancelled';
         }
 
         return 'missing_config';
