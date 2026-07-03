@@ -48,6 +48,9 @@ final class DashboardController
         $tab = $this->activeTab($_GET['tab'] ?? 'overview');
         $jtlOrders = [];
         $jtlOrdersError = null;
+        $jtlSalesChannels = [];
+        $jtlWorkerStatus = null;
+        $jtlWorkerError = null;
         $productRows = [];
         $productImportError = null;
         $productSkuAliasRows = [];
@@ -73,6 +76,19 @@ final class DashboardController
         ];
 
         if ($tab === 'jtl-orders') {
+            try {
+                $jtlSalesChannels = $jtl->getSalesChannels();
+            } catch (\Throwable $exception) {
+                $jtlWorkerError = 'Sales channels: ' . $exception->getMessage();
+            }
+
+            try {
+                $jtlWorkerStatus = $jtl->getWorkerStatus();
+            } catch (\Throwable $exception) {
+                $prefix = $jtlWorkerError !== null ? $jtlWorkerError . ' | ' : '';
+                $jtlWorkerError = $prefix . 'Worker status: ' . $exception->getMessage();
+            }
+
             try {
                 $jtlOrders = $this->filterJtlOrderRows(
                     $this->jtlOrderRows($jtl->getOrders(), $customerMappings, $mappings, $packiyo),
@@ -117,6 +133,9 @@ final class DashboardController
             $fulfillmentSyncs->recent(50),
             $jtlOrders,
             $jtlOrdersError,
+            $jtlSalesChannels,
+            $jtlWorkerStatus,
+            $jtlWorkerError,
             $jtlOrderCustomerFilter,
             $jtlOrderMappedCustomerFilter,
             $productSkuAliasRows,
@@ -146,6 +165,8 @@ final class DashboardController
      * @param array<string, mixed>|null $fulfillmentState
      * @param array<int, array<string, mixed>> $fulfillmentRows
      * @param array<int, array<string, mixed>> $jtlOrders
+     * @param array<int, array<string, mixed>> $jtlSalesChannels
+     * @param array<string, mixed>|null $jtlWorkerStatus
      * @param string $jtlOrderCustomerFilter
      * @param string $jtlOrderMappedCustomerFilter
      * @param array<int, array<string, mixed>> $productSkuAliasRows
@@ -168,6 +189,9 @@ final class DashboardController
         array $fulfillmentRows,
         array $jtlOrders,
         ?string $jtlOrdersError,
+        array $jtlSalesChannels,
+        ?array $jtlWorkerStatus,
+        ?string $jtlWorkerError,
         string $jtlOrderCustomerFilter,
         string $jtlOrderMappedCustomerFilter,
         array $productSkuAliasRows,
@@ -473,6 +497,19 @@ final class DashboardController
             margin-bottom: 14px;
         }
 
+        .worker-panel {
+            border-bottom: 1px solid var(--line);
+            margin: -2px 0 14px;
+            padding-bottom: 14px;
+        }
+
+        .jtl-worker-form {
+            display: grid;
+            grid-template-columns: minmax(240px, 1fr) auto auto;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
         .jtl-order-filter-form {
             display: grid;
             grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto auto;
@@ -676,7 +713,7 @@ final class DashboardController
                 padding-top: 18px;
             }
 
-            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .jtl-order-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid {
+            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .jtl-worker-form, .jtl-order-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -756,7 +793,16 @@ final class DashboardController
             <?php endif; ?>
 
             <?php if ($tab === 'jtl-orders'): ?>
-                <?= $this->renderJtlOrders($jtlOrders, $jtlOrdersError, $activeCustomers, $jtlOrderCustomerFilter, $jtlOrderMappedCustomerFilter) ?>
+                <?= $this->renderJtlOrders(
+                    $jtlOrders,
+                    $jtlOrdersError,
+                    $jtlSalesChannels,
+                    $jtlWorkerStatus,
+                    $jtlWorkerError,
+                    $activeCustomers,
+                    $jtlOrderCustomerFilter,
+                    $jtlOrderMappedCustomerFilter
+                ) ?>
             <?php endif; ?>
 
             <?php if ($tab === 'fulfillment'): ?>
@@ -968,12 +1014,70 @@ final class DashboardController
     }
 
     /**
+     * @param array<int, array<string, mixed>> $salesChannels
+     * @param array<string, mixed>|null $workerStatus
+     */
+    private function renderJtlWorkerPanel(array $salesChannels, ?array $workerStatus, ?string $error): string
+    {
+        ob_start();
+        ?>
+            <div class="worker-panel">
+                <h3>Marketplace Abgleich</h3>
+
+                <div class="details">
+                    <div class="detail">
+                        <span>Worker</span>
+                        <strong><?= $this->e($this->workerStatusLabel($workerStatus)) ?></strong>
+                    </div>
+                    <div class="detail">
+                        <span>Sales channels</span>
+                        <strong><?= $this->e((string) count($salesChannels)) ?></strong>
+                    </div>
+                    <div class="detail">
+                        <span>Endpoint</span>
+                        <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'POST') . ' ' . Config::get('jtl.workers_endpoint', '/api/eazybusiness/workers')) ?></strong>
+                    </div>
+                </div>
+
+                <?php if ($error !== null): ?>
+                    <div class="empty">No se pudo leer el estado del worker: <?= $this->e($error) ?></div>
+                <?php endif; ?>
+
+                <form class="jtl-worker-form" action="<?= $this->e($this->url('/jtl/workers/start')) ?>" method="post">
+                    <select name="sales_channel_id">
+                        <option value="">Todos / segun JTL Worker</option>
+                        <?php foreach ($salesChannels as $channel): ?>
+                            <?php $channelId = $this->salesChannelId($channel); ?>
+                            <?php if ($channelId === '') {
+                                continue;
+                            } ?>
+                            <option value="<?= $this->e($channelId) ?>"><?= $this->e($this->salesChannelLabel($channel)) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button class="button" type="submit">Iniciar abgleich</button>
+                    <a class="button secondary button-link" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Actualizar estado</a>
+                </form>
+
+                <?php if ($workerStatus !== null && $workerStatus !== []): ?>
+                    <div class="field-hint">Status raw: <?= $this->e($this->shortJson($workerStatus)) ?></div>
+                <?php endif; ?>
+            </div>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $jtlOrders
+     * @param array<int, array<string, mixed>> $jtlSalesChannels
      * @param array<int, array<string, mixed>> $activeCustomers
      */
     private function renderJtlOrders(
         array $jtlOrders,
         ?string $error,
+        array $jtlSalesChannels,
+        ?array $jtlWorkerStatus,
+        ?string $jtlWorkerError,
         array $activeCustomers,
         string $customerFilter,
         string $mappedCustomerFilter
@@ -991,6 +1095,8 @@ final class DashboardController
                     </form>
                 </div>
                 <div class="section-body">
+                    <?= $this->renderJtlWorkerPanel($jtlSalesChannels, $jtlWorkerStatus, $jtlWorkerError) ?>
+
                     <form class="jtl-order-filter-form" action="<?= $this->e($this->url('/')) ?>" method="get">
                         <input type="hidden" name="tab" value="jtl-orders">
                         <input name="jtl_customer" value="<?= $this->e($customerFilter) ?>" placeholder="Filtrar por cliente orden">
@@ -1900,6 +2006,9 @@ final class DashboardController
                 <?php if ($key === 'JTL_BASE_URL'): ?>
                     <div class="field-hint">En hosting compartido, usa la URL publica del Cloudflare Tunnel, por ejemplo https://jtl-wawi.3plgermany.com.</div>
                 <?php endif; ?>
+                <?php if ($key === 'JTL_WORKER_SYNC_BODY_TEMPLATE'): ?>
+                    <div class="field-hint">Dejar vacio envia la solicitud sin body. Puedes usar {{sales_channel_id}} y {{sales_channel_name}} dentro de JSON.</div>
+                <?php endif; ?>
             </div>
         <?php
 
@@ -2078,6 +2187,81 @@ final class DashboardController
         } catch (\Throwable $exception) {
             return ['state' => 'unknown', 'message' => $exception->getMessage()];
         }
+    }
+
+    /** @param array<string, mixed>|null $status */
+    private function workerStatusLabel(?array $status): string
+    {
+        if ($status === null) {
+            return 'sin_estado';
+        }
+
+        if ($status === []) {
+            return 'sin_datos';
+        }
+
+        $running = $this->firstScalar($status, ['isRunning', 'IsRunning', 'running', 'Running']);
+
+        if ($running !== null) {
+            return in_array(strtolower($running), ['1', 'true', 'yes'], true) ? 'running' : 'idle';
+        }
+
+        return $this->firstScalar($status, ['status', 'Status', 'state', 'State', 'workerStatus', 'WorkerStatus'])
+            ?? $this->shortJson($status, 80);
+    }
+
+    /** @param array<string, mixed> $channel */
+    private function salesChannelId(array $channel): string
+    {
+        return $this->firstScalar($channel, [
+            'salesChannelId',
+            'SalesChannelId',
+            'id',
+            'Id',
+            'ID',
+            'internalId',
+            'InternalId',
+            'number',
+            'Number',
+        ]) ?? '';
+    }
+
+    /** @param array<string, mixed> $channel */
+    private function salesChannelLabel(array $channel): string
+    {
+        $id = $this->salesChannelId($channel);
+        $name = $this->firstScalar($channel, [
+            'name',
+            'Name',
+            'displayName',
+            'DisplayName',
+            'description',
+            'Description',
+            'platform',
+            'Platform',
+        ]);
+
+        if ($name === null) {
+            return $id !== '' ? '#' . $id : $this->shortJson($channel, 80);
+        }
+
+        return $id !== '' ? $name . ' #' . $id : $name;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function shortJson(array $data, int $maxLength = 220): string
+    {
+        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        if (!is_string($json) || $json === '') {
+            return '-';
+        }
+
+        if (strlen($json) <= $maxLength) {
+            return $json;
+        }
+
+        return substr($json, 0, max(0, $maxLength - 3)) . '...';
     }
 
     /** @param array<string, mixed> $response */

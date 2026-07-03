@@ -8,6 +8,7 @@ use App\Controllers\DashboardController;
 use App\Controllers\FulfillmentController;
 use App\Controllers\JtlOrderSourceController;
 use App\Controllers\JtlRegistrationController;
+use App\Controllers\JtlWorkerController;
 use App\Controllers\PackiyoCustomerController;
 use App\Controllers\PackiyoCustomerMappingController;
 use App\Controllers\ProductImportController;
@@ -54,6 +55,7 @@ try {
         '/jtl/order-sources/detect' => (new JtlOrderSourceController())->detect(),
         '/jtl/register' => (new JtlRegistrationController())->start(),
         '/jtl/register/complete' => (new JtlRegistrationController())->complete(),
+        '/jtl/workers/start' => (new JtlWorkerController())->start(),
         '/packiyo/customers/sync' => (new PackiyoCustomerController())->sync(),
         '/packiyo/customers/activate' => (new PackiyoCustomerController())->activate(),
         '/packiyo/customers/deactivate' => (new PackiyoCustomerController())->deactivate(),

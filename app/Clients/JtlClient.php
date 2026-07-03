@@ -8,6 +8,7 @@ use App\Models\JtlApiCredential;
 use App\Support\Config;
 use App\Support\HttpClient;
 use App\Support\HttpException;
+use RuntimeException;
 use Throwable;
 
 final class JtlClient
@@ -36,6 +37,55 @@ final class JtlClient
         ]);
 
         return $this->collection($response);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function getSalesChannels(): array
+    {
+        $endpoint = (string) ($this->config['sales_channels_endpoint'] ?? '');
+
+        if ($endpoint === '') {
+            return [];
+        }
+
+        return $this->collection($this->http->get($endpoint));
+    }
+
+    /** @return array<string, mixed> */
+    public function getWorkerStatus(): array
+    {
+        $endpoint = (string) ($this->config['worker_status_endpoint'] ?? '');
+
+        if ($endpoint === '') {
+            return [];
+        }
+
+        return $this->http->get($endpoint);
+    }
+
+    /** @return array<string, mixed> */
+    public function startWorkerSync(string $salesChannelId = '', string $salesChannelName = ''): array
+    {
+        $method = strtoupper((string) ($this->config['worker_sync_method'] ?? 'POST'));
+        $endpoint = (string) ($this->config['workers_endpoint'] ?? '');
+
+        if ($endpoint === '') {
+            throw new RuntimeException('JTL worker endpoint is not configured.');
+        }
+
+        if (!in_array($method, ['POST', 'PUT', 'PATCH', 'GET'], true)) {
+            throw new RuntimeException('Unsupported JTL worker sync method: ' . $method);
+        }
+
+        $options = [];
+        $body = $this->workerSyncBody($salesChannelId, $salesChannelName);
+
+        if ($body !== null) {
+            $options['body'] = $body;
+            $options['headers'] = ['Content-Type' => 'application/json'];
+        }
+
+        return $this->http->request($method, $endpoint, $options);
     }
 
     /** @return array<string, mixed> */
@@ -253,6 +303,36 @@ final class JtlClient
         return str_replace('{id}', rawurlencode($id), (string) ($this->config['delivery_note_packages_endpoint'] ?? ''));
     }
 
+    private function workerSyncBody(string $salesChannelId, string $salesChannelName): ?string
+    {
+        $template = trim((string) ($this->config['worker_sync_body_template'] ?? ''));
+
+        if ($template === '') {
+            return null;
+        }
+
+        $body = str_replace(
+            ['{{sales_channel_id}}', '{{sales_channel_name}}'],
+            [$this->jsonStringFragment($salesChannelId), $this->jsonStringFragment($salesChannelName)],
+            $template
+        );
+
+        json_decode($body, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new RuntimeException('JTL worker sync body is not valid JSON: ' . json_last_error_msg());
+        }
+
+        return $body;
+    }
+
+    private function jsonStringFragment(string $value): string
+    {
+        $encoded = json_encode($value, JSON_THROW_ON_ERROR);
+
+        return substr($encoded, 1, -1);
+    }
+
     /** @return array<int, array<string, mixed>> */
     private function collection(array $response): array
     {
@@ -265,6 +345,10 @@ final class JtlClient
             'Orders',
             'salesOrders',
             'SalesOrders',
+            'salesChannels',
+            'SalesChannels',
+            'workers',
+            'Workers',
             'results',
             'Results',
             'value',
