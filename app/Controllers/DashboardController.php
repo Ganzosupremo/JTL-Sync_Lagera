@@ -2230,6 +2230,14 @@ final class DashboardController
             'InternalId',
             'number',
             'Number',
+            'key',
+            'Key',
+            'value',
+            'Value',
+            'identifier',
+            'Identifier',
+            'guid',
+            'Guid',
         ]) ?? '';
     }
 

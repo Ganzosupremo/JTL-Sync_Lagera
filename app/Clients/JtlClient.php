@@ -96,10 +96,6 @@ final class JtlClient
             throw new RuntimeException('JTL worker endpoint is not configured.');
         }
 
-        if ($syncId === '') {
-            throw new RuntimeException('Select a JTL worker sync first.');
-        }
-
         if (!in_array($method, ['POST', 'PUT', 'PATCH', 'GET'], true)) {
             throw new RuntimeException('Unsupported JTL worker sync method: ' . $method);
         }
@@ -346,7 +342,7 @@ final class JtlClient
         $template = trim((string) ($this->config['worker_sync_body_template'] ?? ''));
 
         if ($template === '') {
-            return null;
+            $template = '{}';
         }
 
         $body = str_replace(
