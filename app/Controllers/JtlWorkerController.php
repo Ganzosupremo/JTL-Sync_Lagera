@@ -231,7 +231,7 @@ final class JtlWorkerController
             || str_contains($message, 'Guid string should only contain hexadecimal')
         ) {
             return $message
-                . ' Tip: usa los endpoints versionados /api/eazybusiness/v1/workers, /api/eazybusiness/v1/workers/{syncId} y /api/eazybusiness/v1/workers/status en Ajustes.';
+                . ' Tip: esta JTL API esta tratando la ruta de Worker como si fuera un SyncId. La app prueba /api/eazybusiness/v1/workers y /api/eazybusiness/workers; si ambas fallan, necesitamos sacar el Identifier desde otra fuente o revisar el Worker API instalado.';
         }
 
         return $message;

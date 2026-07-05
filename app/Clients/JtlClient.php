@@ -89,12 +89,15 @@ final class JtlClient
         $lastException = null;
         $response = null;
 
-        foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
+        $errors = [];
+
+        foreach ($this->workerCollectionEndpointCandidates($endpoint) as $candidate) {
             try {
                 $response = $this->http->get($candidate);
                 break;
             } catch (HttpException $exception) {
                 $lastException = $exception;
+                $errors[] = $exception->getMessage();
 
                 if (!$this->shouldTryWorkerEndpointFallback($exception)) {
                     throw $exception;
@@ -103,6 +106,10 @@ final class JtlClient
         }
 
         if ($response === null) {
+            if ($errors !== []) {
+                throw new RuntimeException('Unable to read JTL worker syncs. Tried: ' . implode(' | ', $errors));
+            }
+
             throw $lastException ?? new RuntimeException('Unable to read JTL worker syncs.');
         }
 
@@ -390,11 +397,35 @@ final class JtlClient
         $candidates = [$endpoint];
 
         if (str_contains($endpoint, '/api/eazybusiness/v1/workers')) {
-            return $candidates;
+            $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/workers', $endpoint);
         }
 
         if (str_contains($endpoint, '/api/eazybusiness/workers')) {
             $candidates[] = str_replace('/api/eazybusiness/workers', '/api/eazybusiness/v1/workers', $endpoint);
+        }
+
+        foreach ($candidates as $candidate) {
+            if ($candidate !== '' && !str_ends_with($candidate, '/')) {
+                $candidates[] = $candidate . '/';
+            }
+        }
+
+        return array_values(array_unique($candidates));
+    }
+
+    /** @return array<int, string> */
+    private function workerCollectionEndpointCandidates(string $endpoint): array
+    {
+        $candidates = $this->workerEndpointCandidates($endpoint);
+
+        foreach ($candidates as $candidate) {
+            if (str_contains($candidate, '/api/eazybusiness/v1/workers')) {
+                $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/workers', $candidate);
+            }
+
+            if (str_contains($candidate, '/v1/workers')) {
+                $candidates[] = str_replace('/v1/workers', '/workers', $candidate);
+            }
         }
 
         return array_values(array_unique($candidates));
