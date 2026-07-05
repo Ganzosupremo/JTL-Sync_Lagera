@@ -132,7 +132,7 @@ final class JtlClient
     {
         $method = strtoupper((string) ($this->config['worker_sync_method'] ?? 'POST'));
         $method = $method === 'GET' ? 'PUT' : $method;
-        $endpoint = $this->workerSyncEndpoint($syncId);
+        $endpoint = (string) ($this->config['worker_endpoint'] ?? '');
 
         if ($endpoint === '') {
             throw new RuntimeException('JTL worker endpoint is not configured.');
@@ -144,7 +144,7 @@ final class JtlClient
 
         $lastException = null;
 
-        foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
+        foreach ($this->workerControlEndpointCandidates($endpoint, $syncId) as $candidate) {
             foreach ($this->workerSyncRequestPayloads($syncId, $syncName, $candidate) as $options) {
                 foreach ($this->workerRequestVariants($options) as $requestOptions) {
                     try {
@@ -390,6 +390,60 @@ final class JtlClient
     }
 
     /** @return array<int, string> */
+    private function workerControlEndpointCandidates(string $endpoint, string $syncId): array
+    {
+        $encodedSyncId = rawurlencode($syncId);
+        $configured = str_replace(['{id}', '{syncId}', '{sync_id}'], $encodedSyncId, $endpoint);
+        $candidates = [];
+
+        if ($this->workerActionIsInPath($configured)) {
+            $candidates[] = $configured;
+        }
+
+        foreach ($this->workerPathControlCandidates($endpoint, $encodedSyncId) as $candidate) {
+            $candidates[] = $candidate;
+        }
+
+        if (!$this->workerActionIsInPath($configured)) {
+            $candidates[] = $configured;
+        }
+
+        foreach ($this->workerEndpointCandidates($configured) as $candidate) {
+            if (!$this->workerActionIsInPath($candidate)) {
+                $candidates[] = $candidate;
+            }
+        }
+
+        return array_values(array_filter(array_unique($candidates)));
+    }
+
+    /** @return array<int, string> */
+    private function workerPathControlCandidates(string $endpoint, string $encodedSyncId): array
+    {
+        $normalized = rtrim($endpoint, '/');
+        $candidates = [];
+
+        foreach ([
+            '/api/eazybusiness/v2/workers/control',
+            '/api/eazybusiness/v1/workers/control',
+            '/api/eazybusiness/workers/control',
+        ] as $controlPath) {
+            if (str_contains($normalized, $controlPath)) {
+                $candidates[] = str_replace($controlPath, '/api/eazybusiness/v1/workers/' . $encodedSyncId, $normalized);
+                $candidates[] = str_replace($controlPath, '/api/eazybusiness/workers/' . $encodedSyncId, $normalized);
+                return $candidates;
+            }
+        }
+
+        if (preg_match('#/api/eazybusiness/(?:v[0-9]+/)?workers(?:/\{(?:id|syncId|sync_id)\})?$#', $normalized) === 1) {
+            $base = preg_replace('#(?:/\{(?:id|syncId|sync_id)\})?$#', '', $normalized) ?? $normalized;
+            $candidates[] = rtrim($base, '/') . '/' . $encodedSyncId;
+        }
+
+        return $candidates;
+    }
+
+    /** @return array<int, string> */
     private function workerEndpointCandidates(string $endpoint): array
     {
         $candidates = [$endpoint];
@@ -467,6 +521,7 @@ final class JtlClient
             || str_contains($message, 'guid string')
             || str_contains($message, 'invalid key format')
             || str_contains($message, 'key must from type guid')
+            || str_contains($message, 'key must from type int')
             || str_contains($message, "property 'reference'")
             || str_contains($message, 'unsupported api version')
             || str_contains($message, 'does not support the api version');
@@ -505,8 +560,14 @@ final class JtlClient
     {
         $template = trim((string) ($this->config['worker_sync_body_template'] ?? ''));
         $usesControlEndpoint = str_contains(strtolower($endpoint), '/workers/control');
+        $usesPathControlEndpoint = $this->workerActionIsInPath($endpoint);
 
-        if ($template === '' || $template === '{}' || ($usesControlEndpoint && in_array($template, ['{"Action":0}', '{"action":0}'], true))) {
+        if (
+            $template === ''
+            || $template === '{}'
+            || ($usesControlEndpoint && in_array($template, ['{"Action":0}', '{"action":0}'], true))
+            || ($usesPathControlEndpoint && str_contains($template, 'sync_id'))
+        ) {
             $template = $usesControlEndpoint ? '{"syncId":"{{sync_id}}","action":0}' : '{"Action":0}';
         }
 
@@ -535,6 +596,17 @@ final class JtlClient
     {
         $payloads = [];
         $seen = [];
+        $usesPathControlEndpoint = $this->workerActionIsInPath($endpoint);
+
+        if ($usesPathControlEndpoint) {
+            foreach ([
+                ['Action' => 0],
+                ['action' => 0],
+            ] as $payload) {
+                $this->addWorkerBody($payloads, $seen, json_encode($payload, JSON_THROW_ON_ERROR));
+            }
+        }
+
         $configuredBody = $this->workerSyncBody($syncId, $syncName, $endpoint);
 
         if ($configuredBody !== null) {
@@ -567,6 +639,13 @@ final class JtlClient
         }
 
         return $payloads;
+    }
+
+    private function workerActionIsInPath(string $endpoint): bool
+    {
+        $path = strtolower(parse_url($endpoint, PHP_URL_PATH) ?: $endpoint);
+
+        return preg_match('#/workers/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/?$#', $path) === 1;
     }
 
     /**

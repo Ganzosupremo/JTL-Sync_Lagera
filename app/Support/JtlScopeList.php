@@ -22,6 +22,8 @@ final class JtlScopeList
         'deliverynotes.read',
         'deliverynotes.write',
         'worker.getworkersyncs',
+        'worker.getworkerstatus',
+        'worker.synccontrol',
         'system.worker.read',
         'system.worker.write',
     ];
