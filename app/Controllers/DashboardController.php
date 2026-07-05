@@ -1055,6 +1055,10 @@ final class DashboardController
                         <strong><?= $this->e((string) count($workerSyncs)) ?></strong>
                     </div>
                     <div class="detail">
+                        <span>Sync ID default</span>
+                        <strong><?= $this->e(trim((string) Config::get('jtl.worker_sync_id', '')) !== '' ? (string) Config::get('jtl.worker_sync_id', '') : '-') ?></strong>
+                    </div>
+                    <div class="detail">
                         <span>Endpoint</span>
                         <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'POST') . ' ' . Config::get('jtl.worker_endpoint', '/api/eazybusiness/v2/workers/control')) ?></strong>
                     </div>

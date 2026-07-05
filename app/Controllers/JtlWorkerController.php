@@ -90,8 +90,14 @@ final class JtlWorkerController
             return [$syncId, $syncName];
         }
 
+        $configuredSyncId = trim((string) Config::get('jtl.worker_sync_id', ''));
+
+        if ($configuredSyncId !== '') {
+            return [$configuredSyncId, trim((string) Config::get('jtl.worker_sync_name', ''))];
+        }
+
         if (!(bool) Config::get('jtl.worker_discovery_enabled', false)) {
-            throw new RuntimeException('Ingresa un Sync ID manual. La lectura automatica de /workers esta desactivada para esta JTL API.');
+            throw new RuntimeException('Ingresa un Sync ID manual o guarda JTL_WORKER_SYNC_ID en Ajustes. La lectura automatica de /workers esta desactivada para esta JTL API.');
         }
 
         $syncs = $jtl->getWorkerSyncs();
