@@ -1062,6 +1062,10 @@ final class DashboardController
                         <span>Endpoint</span>
                         <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'PUT') . ' ' . Config::get('jtl.worker_endpoint', '/api/eazybusiness/v1/workers/{id}')) ?></strong>
                     </div>
+                    <div class="detail">
+                        <span>Worker client</span>
+                        <strong><?= $this->e(JtlClient::WORKER_CONTROL_CLIENT_VERSION) ?></strong>
+                    </div>
                 </div>
 
                 <?php if ($error !== null): ?>

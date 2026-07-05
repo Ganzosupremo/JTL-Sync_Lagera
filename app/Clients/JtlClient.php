@@ -13,7 +13,7 @@ use Throwable;
 
 final class JtlClient
 {
-    public const WORKER_CONTROL_CLIENT_VERSION = 'worker-v1-path-only-20260705';
+    public const WORKER_CONTROL_CLIENT_VERSION = 'worker-v1-canonical-only-20260705';
 
     private HttpClient $http;
 
@@ -146,11 +146,7 @@ final class JtlClient
 
         $lastException = null;
 
-        foreach ($this->workerControlEndpointCandidates($endpoint, $syncId) as $candidate) {
-            if (!$this->isSupportedWorkerControlEndpoint($candidate)) {
-                continue;
-            }
-
+        foreach ($this->workerCanonicalControlEndpoints($syncId) as $candidate) {
             foreach ($this->workerSyncRequestPayloads($syncId, $syncName, $candidate) as $options) {
                 foreach ($this->workerControlRequestVariants($options, $candidate) as $requestOptions) {
                     try {
@@ -177,7 +173,8 @@ final class JtlClient
         return [
             'version' => self::WORKER_CONTROL_CLIENT_VERSION,
             'configured_endpoint' => $endpoint,
-            'candidates' => $this->workerControlEndpointCandidates($endpoint, $syncId),
+            'candidates' => $this->workerCanonicalControlEndpoints($syncId),
+            'ignored_config_candidates' => $this->workerControlEndpointCandidates($endpoint, $syncId),
         ];
     }
 
@@ -405,6 +402,17 @@ final class JtlClient
             rawurlencode($syncId),
             $endpoint
         );
+    }
+
+    /** @return array<int, string> */
+    private function workerCanonicalControlEndpoints(string $syncId): array
+    {
+        $basePath = strtolower(trim((string) (parse_url((string) ($this->config['base_url'] ?? ''), PHP_URL_PATH) ?: ''), '/'));
+        $prefix = str_ends_with($basePath, 'api/eazybusiness')
+            ? '/v1/workers/'
+            : '/api/eazybusiness/v1/workers/';
+
+        return [$prefix . rawurlencode($syncId)];
     }
 
     /** @return array<int, string> */
