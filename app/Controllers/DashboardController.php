@@ -77,6 +77,8 @@ final class DashboardController
         ];
 
         if ($tab === 'jtl-orders') {
+            $jtlWorkerSyncs = $this->cachedWorkerSyncs();
+
             if ((bool) Config::get('jtl.worker_discovery_enabled', false)) {
                 try {
                     $jtlWorkerSyncs = $jtl->getWorkerSyncs();
@@ -516,6 +518,13 @@ final class DashboardController
             grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px) auto auto;
             gap: 10px;
             margin-bottom: 8px;
+        }
+
+        .jtl-worker-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 10px 0;
         }
 
         .jtl-order-filter-form {
@@ -1047,7 +1056,7 @@ final class DashboardController
                     </div>
                     <div class="detail">
                         <span>Endpoint</span>
-                        <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'POST') . ' ' . Config::get('jtl.worker_endpoint', '/api/eazybusiness/v1/workers/{id}')) ?></strong>
+                        <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'POST') . ' ' . Config::get('jtl.worker_endpoint', '/api/eazybusiness/v1/workers/{syncId}')) ?></strong>
                     </div>
                 </div>
 
@@ -1059,8 +1068,14 @@ final class DashboardController
                 <?php endif; ?>
 
                 <?php if (!(bool) Config::get('jtl.worker_discovery_enabled', false)): ?>
-                    <div class="field-hint">La lectura automatica de Worker esta desactivada porque esta JTL API interpreta /workers como SyncId. Ingresa el Identifier UUID del WorkerSyncItem como Sync ID manual.</div>
+                    <div class="field-hint">La lectura automatica de Worker esta desactivada porque esta JTL API interpreta /workers como SyncId. Ingresa el Identifier UUID del WorkerSyncItem como Sync ID manual; no uses IDs numericos como 1 o 2.</div>
                 <?php endif; ?>
+
+                <div class="jtl-worker-actions">
+                    <form class="inline-form" action="<?= $this->e($this->url('/jtl/workers/discover')) ?>" method="post">
+                        <button class="button secondary" type="submit">Leer GET /workers</button>
+                    </form>
+                </div>
 
                 <form class="jtl-worker-form" action="<?= $this->e($this->url('/jtl/workers/start')) ?>" method="post">
                     <select name="worker_sync_id">
@@ -1073,7 +1088,7 @@ final class DashboardController
                             <option value="<?= $this->e($syncId) ?>"><?= $this->e($this->workerSyncLabel($sync)) ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <input name="worker_sync_id_manual" placeholder="Sync ID manual">
+                    <input name="worker_sync_id_manual" placeholder="Identifier UUID manual" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}">
                     <button class="button" type="submit">Iniciar abgleich</button>
                     <a class="button secondary button-link" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Actualizar estado</a>
                 </form>
@@ -2062,6 +2077,30 @@ final class DashboardController
         return Setting::configured($key);
     }
 
+    /** @return array<int, array<string, mixed>> */
+    private function cachedWorkerSyncs(): array
+    {
+        if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+
+        $syncs = $_SESSION['jtl_worker_syncs'] ?? [];
+
+        if (!is_array($syncs)) {
+            return [];
+        }
+
+        $items = [];
+
+        foreach ($syncs as $sync) {
+            if (is_array($sync)) {
+                $items[] = $sync;
+            }
+        }
+
+        return $items;
+    }
+
     private function activeTab(mixed $tab): string
     {
         $tab = is_string($tab) ? $tab : 'overview';
@@ -2247,10 +2286,18 @@ final class DashboardController
     private function workerSyncId(array $sync): string
     {
         return $this->firstScalar($sync, [
+            'identifier',
+            'Identifier',
+            'guid',
+            'Guid',
             'syncId',
             'SyncId',
             'workerSyncId',
             'WorkerSyncId',
+            'key',
+            'Key',
+            'value',
+            'Value',
             'id',
             'Id',
             'ID',
@@ -2258,14 +2305,6 @@ final class DashboardController
             'InternalId',
             'number',
             'Number',
-            'key',
-            'Key',
-            'value',
-            'Value',
-            'identifier',
-            'Identifier',
-            'guid',
-            'Guid',
         ]) ?? '';
     }
 

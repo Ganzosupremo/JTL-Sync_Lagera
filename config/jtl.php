@@ -42,7 +42,7 @@ return [
     'delivery_note_packages_endpoint' => Setting::get('JTL_DELIVERY_NOTE_PACKAGES_ENDPOINT', '/api/eazybusiness/deliveryNotes/{id}/packages'),
     'sales_channels_endpoint' => Setting::get('JTL_SALES_CHANNELS_ENDPOINT', '/api/eazybusiness/salesChannels'),
     'workers_endpoint' => Setting::get('JTL_WORKERS_ENDPOINT', '/api/eazybusiness/v1/workers'),
-    'worker_endpoint' => Setting::get('JTL_WORKER_ENDPOINT', '/api/eazybusiness/v1/workers/{id}'),
+    'worker_endpoint' => Setting::get('JTL_WORKER_ENDPOINT', '/api/eazybusiness/v1/workers/{syncId}'),
     'worker_status_endpoint' => Setting::get('JTL_WORKER_STATUS_ENDPOINT', '/api/eazybusiness/v1/workers/status'),
     'worker_discovery_enabled' => Setting::get('JTL_WORKER_DISCOVERY_ENABLED', false),
     'worker_sync_method' => Setting::get('JTL_WORKER_SYNC_METHOD', 'PUT'),

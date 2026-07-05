@@ -12,6 +12,41 @@ use RuntimeException;
 
 final class JtlWorkerController
 {
+    public function discover(): void
+    {
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+            http_response_code(405);
+            echo 'Method Not Allowed';
+            return;
+        }
+
+        Database::migrate();
+        $this->startSession();
+
+        try {
+            $syncs = (new JtlClient())->getWorkerSyncs();
+            $_SESSION['jtl_worker_syncs'] = $syncs;
+            $_SESSION['jtl_worker_syncs_read_at'] = date('Y-m-d H:i:s');
+
+            $message = 'GET /workers leido correctamente. Syncs encontrados: ' . count($syncs) . '.';
+
+            if ($syncs !== []) {
+                $message .= ' ' . $this->syncSummary($syncs);
+            }
+
+            (new Logger())->info('jtl_worker', $message . ' Response: ' . $this->shortJson(['items' => $syncs]));
+        } catch (\Throwable $exception) {
+            $message = 'No se pudo leer GET /workers: ' . $this->friendlyError($exception->getMessage());
+            (new Logger())->error('jtl_worker', $message);
+        }
+
+        header(
+            'Location: ' . $this->url('/') . '?tab=jtl-orders&notice=' . rawurlencode($message),
+            true,
+            303
+        );
+    }
+
     public function start(): void
     {
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
@@ -33,6 +68,7 @@ final class JtlWorkerController
         try {
             $jtl = new JtlClient();
             [$syncId, $syncName] = $this->resolveSync($jtl, $syncId, $syncName);
+            $syncId = $this->normalizeWorkerSyncId($syncId);
             $response = $jtl->startWorkerSync($syncId, $syncName);
             $message = 'JTL Worker abgleich iniciado.';
 
@@ -108,10 +144,18 @@ final class JtlWorkerController
     private function workerSyncId(array $sync): string
     {
         return $this->firstScalar($sync, [
+            'identifier',
+            'Identifier',
+            'guid',
+            'Guid',
             'syncId',
             'SyncId',
             'workerSyncId',
             'WorkerSyncId',
+            'key',
+            'Key',
+            'value',
+            'Value',
             'id',
             'Id',
             'ID',
@@ -119,14 +163,6 @@ final class JtlWorkerController
             'InternalId',
             'number',
             'Number',
-            'key',
-            'Key',
-            'value',
-            'Value',
-            'identifier',
-            'Identifier',
-            'guid',
-            'Guid',
         ]) ?? '';
     }
 
@@ -174,17 +210,46 @@ final class JtlWorkerController
         return is_scalar($value) ? trim((string) $value) : '';
     }
 
+    private function startSession(): void
+    {
+        if (PHP_SAPI === 'cli' || session_status() === PHP_SESSION_ACTIVE) {
+            return;
+        }
+
+        session_start();
+    }
+
     private function friendlyError(string $message): string
     {
+        if (str_contains($message, 'HTTP 401')) {
+            return $message
+                . ' Tip: Swagger suele mandar Authorization sin el prefijo Wawi. Este boton usa el token guardado por la app; si tambien da 401, registra la app de nuevo con scopes worker.getworkersyncs/system.worker.read y obten un token nuevo.';
+        }
+
         if (
             str_contains($message, 'FormatNotParsable')
             || str_contains($message, 'Guid string should only contain hexadecimal')
         ) {
             return $message
-                . ' Tip: usa los endpoints versionados /api/eazybusiness/v1/workers, /api/eazybusiness/v1/workers/{id} y /api/eazybusiness/v1/workers/status en Ajustes.';
+                . ' Tip: usa los endpoints versionados /api/eazybusiness/v1/workers, /api/eazybusiness/v1/workers/{syncId} y /api/eazybusiness/v1/workers/status en Ajustes.';
         }
 
         return $message;
+    }
+
+    private function normalizeWorkerSyncId(string $syncId): string
+    {
+        $syncId = trim($syncId, "{} \t\n\r\0\x0B");
+
+        if ($syncId === '') {
+            throw new RuntimeException('Ingresa el Identifier UUID del WorkerSyncItem.');
+        }
+
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $syncId)) {
+            throw new RuntimeException('El Sync ID de Worker debe ser el Identifier UUID del WorkerSyncItem, no un ID numerico. Ejemplo: 08ed1dac-e766-4d00-a049-915a94c55e9d.');
+        }
+
+        return strtolower($syncId);
     }
 
     /** @param array<string, mixed> $data */
