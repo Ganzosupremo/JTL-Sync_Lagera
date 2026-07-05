@@ -40,11 +40,7 @@ final class JtlWorkerController
             (new Logger())->error('jtl_worker', $message);
         }
 
-        header(
-            'Location: ' . $this->url('/') . '?tab=jtl-orders&notice=' . rawurlencode($message),
-            true,
-            303
-        );
+        $this->redirectWithNotice($message);
     }
 
     public function start(): void
@@ -82,11 +78,7 @@ final class JtlWorkerController
             (new Logger())->error('jtl_worker', $message);
         }
 
-        header(
-            'Location: ' . $this->url('/') . '?tab=jtl-orders&notice=' . rawurlencode($message),
-            true,
-            303
-        );
+        $this->redirectWithNotice($message);
     }
 
     /**
@@ -217,6 +209,27 @@ final class JtlWorkerController
         }
 
         session_start();
+    }
+
+    private function redirectWithNotice(string $message): void
+    {
+        $this->startSession();
+        $_SESSION['flash_notice'] = $this->compactNotice($message);
+
+        header('Location: ' . $this->url('/') . '?tab=jtl-orders', true, 303);
+        exit;
+    }
+
+    private function compactNotice(string $message): string
+    {
+        $limit = 1600;
+
+        if (strlen($message) <= $limit) {
+            return $message;
+        }
+
+        return substr($message, 0, $limit - 70)
+            . '... Detalle completo guardado en Logs.';
     }
 
     private function friendlyError(string $message): string

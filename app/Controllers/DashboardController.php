@@ -154,7 +154,7 @@ final class DashboardController
             $productImportWarehouseId,
             $mappings->recent(50),
             $logs->recent(100),
-            $_GET['notice'] ?? $_GET['sync'] ?? null
+            $this->noticeFromRequest($_GET['notice'] ?? $_GET['sync'] ?? null)
         );
     }
 
@@ -2075,6 +2075,34 @@ final class DashboardController
     private function settingConfigured(string $key): bool
     {
         return Setting::configured($key);
+    }
+
+    private function noticeFromRequest(mixed $queryNotice): mixed
+    {
+        if (is_string($queryNotice) && $queryNotice !== '') {
+            return $this->compactNotice($queryNotice);
+        }
+
+        if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+
+        $notice = $_SESSION['flash_notice'] ?? null;
+        unset($_SESSION['flash_notice']);
+
+        return is_string($notice) ? $this->compactNotice($notice) : $notice;
+    }
+
+    private function compactNotice(string $notice): string
+    {
+        $limit = 1600;
+
+        if (strlen($notice) <= $limit) {
+            return $notice;
+        }
+
+        return substr($notice, 0, $limit - 70)
+            . '... Detalle completo guardado en Logs.';
     }
 
     /** @return array<int, array<string, mixed>> */
