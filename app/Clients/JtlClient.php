@@ -91,16 +91,18 @@ final class JtlClient
 
         $errors = [];
 
-        foreach ($this->workerCollectionEndpointCandidates($endpoint) as $candidate) {
-            try {
-                $response = $this->http->get($candidate);
-                break;
-            } catch (HttpException $exception) {
-                $lastException = $exception;
-                $errors[] = $exception->getMessage();
+        foreach ($this->workerRequestVariants() as $variant => $options) {
+            foreach ($this->workerCollectionEndpointCandidates($endpoint) as $candidate) {
+                try {
+                    $response = $this->http->get($candidate, $options);
+                    break 2;
+                } catch (HttpException $exception) {
+                    $lastException = $exception;
+                    $errors[] = '[' . $variant . '] ' . $exception->getMessage();
 
-                if (!$this->shouldTryWorkerEndpointFallback($exception)) {
-                    throw $exception;
+                    if (!$this->shouldTryWorkerEndpointFallback($exception)) {
+                        throw $exception;
+                    }
                 }
             }
         }
@@ -150,14 +152,16 @@ final class JtlClient
 
         $lastException = null;
 
-        foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
-            try {
-                return $this->http->request($method, $candidate, $options);
-            } catch (HttpException $exception) {
-                $lastException = $exception;
+        foreach ($this->workerRequestVariants($options) as $requestOptions) {
+            foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
+                try {
+                    return $this->http->request($method, $candidate, $requestOptions);
+                } catch (HttpException $exception) {
+                    $lastException = $exception;
 
-                if (!$this->shouldTryWorkerEndpointFallback($exception)) {
-                    throw $exception;
+                    if (!$this->shouldTryWorkerEndpointFallback($exception)) {
+                        throw $exception;
+                    }
                 }
             }
         }
@@ -446,6 +450,23 @@ final class JtlClient
         return str_contains($message, 'formatnotparsable')
             || str_contains($message, 'guid string')
             || str_contains($message, "property 'reference'");
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, array<string, mixed>>
+     */
+    private function workerRequestVariants(array $options = []): array
+    {
+        $withoutApiVersion = $options;
+        $headers = is_array($withoutApiVersion['headers'] ?? null) ? $withoutApiVersion['headers'] : [];
+        $headers['api-version'] = '';
+        $withoutApiVersion['headers'] = $headers;
+
+        return [
+            'default headers' => $options,
+            'without api-version header' => $withoutApiVersion,
+        ];
     }
 
     private function workerSyncBody(string $syncId, string $syncName): ?string
