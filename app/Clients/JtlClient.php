@@ -408,23 +408,8 @@ final class JtlClient
             $candidates[] = $configured;
         }
 
-        foreach ($candidates as $candidate) {
-            if (str_contains($candidate, '/api/eazybusiness/v1/workers/')) {
-                $candidates[] = str_replace('/api/eazybusiness/v1/workers/', '/api/eazybusiness/workers/', $candidate);
-            }
-
-            if (str_contains($candidate, '/api/eazybusiness/workers/')) {
-                $candidates[] = str_replace('/api/eazybusiness/workers/', '/api/eazybusiness/v1/workers/', $candidate);
-            }
-
-            if (str_contains($candidate, '/api/eazybusiness/v2/workers/')) {
-                $candidates[] = str_replace('/api/eazybusiness/v2/workers/', '/api/eazybusiness/v1/workers/', $candidate);
-                $candidates[] = str_replace('/api/eazybusiness/v2/workers/', '/api/eazybusiness/workers/', $candidate);
-            }
-        }
-
         return array_values(array_filter(array_unique(array_map(
-            static fn (string $candidate): string => rtrim($candidate, '/'),
+            fn (string $candidate): string => rtrim($this->workerVersionedControlEndpoint($candidate), '/'),
             $candidates
         ))));
     }
@@ -442,7 +427,6 @@ final class JtlClient
         ] as $controlPath) {
             if (str_contains($normalized, $controlPath)) {
                 $candidates[] = str_replace($controlPath, '/api/eazybusiness/v1/workers/' . $encodedSyncId, $normalized);
-                $candidates[] = str_replace($controlPath, '/api/eazybusiness/workers/' . $encodedSyncId, $normalized);
                 return $candidates;
             }
         }
@@ -453,6 +437,23 @@ final class JtlClient
         }
 
         return $candidates;
+    }
+
+    private function workerVersionedControlEndpoint(string $endpoint): string
+    {
+        if (str_contains($endpoint, '/api/eazybusiness/v1/workers/')) {
+            return $endpoint;
+        }
+
+        if (str_contains($endpoint, '/api/eazybusiness/v2/workers/')) {
+            return str_replace('/api/eazybusiness/v2/workers/', '/api/eazybusiness/v1/workers/', $endpoint);
+        }
+
+        if (str_contains($endpoint, '/api/eazybusiness/workers/')) {
+            return str_replace('/api/eazybusiness/workers/', '/api/eazybusiness/v1/workers/', $endpoint);
+        }
+
+        return $endpoint;
     }
 
     /**
@@ -599,7 +600,7 @@ final class JtlClient
             $template === ''
             || $template === '{}'
             || ($usesControlEndpoint && in_array($template, ['{"Action":0}', '{"action":0}'], true))
-            || ($usesPathControlEndpoint && str_contains($template, 'sync_id'))
+            || ($usesPathControlEndpoint && (str_contains($template, 'sync_id') || str_contains(strtolower($template), 'syncid')))
         ) {
             $template = $usesControlEndpoint ? '{"syncId":"{{sync_id}}","action":0}' : '{"Action":0}';
         }
