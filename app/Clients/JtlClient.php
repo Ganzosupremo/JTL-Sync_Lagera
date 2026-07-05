@@ -467,6 +467,9 @@ final class JtlClient
         $message = strtolower($exception->getMessage());
 
         return str_contains($message, 'formatnotparsable')
+            || str_contains($message, 'ambiguous api version')
+            || str_contains($message, 'api versions were requested')
+            || str_contains($message, 'only a single api version')
             || str_contains($message, 'guid string')
             || str_contains($message, "property 'reference'")
             || str_contains($message, 'unsupported api version')
@@ -485,8 +488,8 @@ final class JtlClient
         $withoutApiVersion['headers'] = $headers;
 
         return [
-            'default headers' => $options,
             'without api-version header' => $withoutApiVersion,
+            'default headers' => $options,
         ];
     }
 
