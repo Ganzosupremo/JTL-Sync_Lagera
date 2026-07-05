@@ -37,7 +37,9 @@ $defaultMandatoryScopes = [
     'deliverynotes.read',
     'deliverynotes.write',
     'worker.getworkersyncs',
+    'worker.putworkersyncaction',
     'system.worker.read',
+    'system.worker.write',
 ];
 $configuredMandatoryScopes = array_values(array_filter(array_map(
     'trim',
@@ -62,8 +64,8 @@ return [
     'worker_endpoint' => Setting::get('JTL_WORKER_ENDPOINT', '/api/eazybusiness/v1/workers/{id}'),
     'worker_status_endpoint' => Setting::get('JTL_WORKER_STATUS_ENDPOINT', '/api/eazybusiness/v1/workers/status'),
     'worker_discovery_enabled' => Setting::get('JTL_WORKER_DISCOVERY_ENABLED', false),
-    'worker_sync_method' => Setting::get('JTL_WORKER_SYNC_METHOD', 'POST'),
-    'worker_sync_body_template' => Setting::get('JTL_WORKER_SYNC_BODY_TEMPLATE', '{}'),
+    'worker_sync_method' => Setting::get('JTL_WORKER_SYNC_METHOD', 'PUT'),
+    'worker_sync_body_template' => Setting::get('JTL_WORKER_SYNC_BODY_TEMPLATE', '{"Action":0}'),
     'items_endpoint' => Setting::get('JTL_ITEMS_ENDPOINT', '/api/eazybusiness/items'),
     'item_endpoint' => Setting::get('JTL_ITEM_ENDPOINT', '/api/eazybusiness/items/{id}'),
     'stocks_endpoint' => Setting::get('JTL_STOCKS_ENDPOINT', '/api/eazybusiness/stocks'),

@@ -1058,7 +1058,7 @@ final class DashboardController
                 <?php endif; ?>
 
                 <?php if (!(bool) Config::get('jtl.worker_discovery_enabled', false)): ?>
-                    <div class="field-hint">La lectura automatica de Worker esta desactivada porque esta JTL API interpreta /workers como SyncId. Ingresa el Sync ID manual para iniciar el abgleich.</div>
+                    <div class="field-hint">La lectura automatica de Worker esta desactivada porque esta JTL API interpreta /workers como SyncId. Ingresa el Identifier UUID del WorkerSyncItem como Sync ID manual.</div>
                 <?php endif; ?>
 
                 <form class="jtl-worker-form" action="<?= $this->e($this->url('/jtl/workers/start')) ?>" method="post">
@@ -2030,7 +2030,7 @@ final class DashboardController
                     <div class="field-hint">En hosting compartido, usa la URL publica del Cloudflare Tunnel, por ejemplo https://jtl-wawi.3plgermany.com.</div>
                 <?php endif; ?>
                 <?php if ($key === 'JTL_WORKER_SYNC_BODY_TEMPLATE'): ?>
-                    <div class="field-hint">Dejar vacio envia la solicitud sin body. Puedes usar {{sales_channel_id}} y {{sales_channel_name}} dentro de JSON.</div>
+                    <div class="field-hint">Para iniciar usa {"Action":0}. JTL define 0=Start, 1=Stop, 2=Restart.</div>
                 <?php endif; ?>
             </div>
         <?php

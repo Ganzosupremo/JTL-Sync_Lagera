@@ -122,6 +122,7 @@ final class JtlClient
     public function startWorkerSync(string $syncId, string $syncName = ''): array
     {
         $method = strtoupper((string) ($this->config['worker_sync_method'] ?? 'POST'));
+        $method = $method === 'GET' ? 'PUT' : $method;
         $endpoint = $this->workerSyncEndpoint($syncId);
 
         if ($endpoint === '') {
@@ -420,8 +421,8 @@ final class JtlClient
     {
         $template = trim((string) ($this->config['worker_sync_body_template'] ?? ''));
 
-        if ($template === '') {
-            $template = '{}';
+        if ($template === '' || $template === '{}') {
+            $template = '{"Action":0}';
         }
 
         $body = str_replace(
