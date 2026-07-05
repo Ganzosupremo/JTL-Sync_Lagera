@@ -98,7 +98,7 @@ final class JtlWorkerController
         }
 
         if (!(bool) Config::get('jtl.worker_discovery_enabled', false)) {
-            throw new RuntimeException('Ingresa un Sync ID manual o guarda JTL_WORKER_SYNC_ID en Ajustes. La lectura automatica de /workers esta desactivada para esta JTL API.');
+            throw new RuntimeException('Ingresa un Sync ID manual o guarda JTL_WORKER_SYNC_ID en Ajustes. Puede ser UUID o ID numerico, segun lo que espere tu JTL API.');
         }
 
         $syncs = $jtl->getWorkerSyncs();
@@ -249,9 +249,10 @@ final class JtlWorkerController
         if (
             str_contains($message, 'FormatNotParsable')
             || str_contains($message, 'Guid string should only contain hexadecimal')
+            || str_contains($message, 'Key must from Type int')
         ) {
             return $message
-                . ' Tip: esta JTL API esta tratando la ruta de Worker como si fuera un SyncId. La app prueba rutas versionadas/no versionadas y tambien sin el header api-version; si todo falla, necesitamos sacar el Identifier desde otra fuente o revisar el Worker API instalado.';
+                . ' Tip: esta JTL API espera un Sync ID numerico. Usa el kZiel/kShop de Worker.tTarget; para Temu EsSo vimos 2 en SQL.';
         }
 
         return $message;
@@ -266,7 +267,11 @@ final class JtlWorkerController
         }
 
         if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $syncId)) {
-            throw new RuntimeException('El Sync ID de Worker debe ser el Identifier UUID del WorkerSyncItem, no un ID numerico. Ejemplo: 08ed1dac-e766-4d00-a049-915a94c55e9d.');
+            if (preg_match('/^\d+$/', $syncId) === 1) {
+                return $syncId;
+            }
+
+            throw new RuntimeException('El Sync ID de Worker debe ser el Identifier UUID del WorkerSyncItem o el ID numerico que espera esta JTL API. Para Temu EsSo, segun tu SQL, prueba 2.');
         }
 
         return strtolower($syncId);

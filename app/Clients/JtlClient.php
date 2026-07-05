@@ -710,7 +710,10 @@ final class JtlClient
     {
         $path = strtolower(parse_url($endpoint, PHP_URL_PATH) ?: $endpoint);
 
-        return preg_match('#/workers/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/?$#', $path) === 1;
+        return preg_match(
+            '#/workers/(?:[0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/?$#',
+            $path
+        ) === 1;
     }
 
     /**

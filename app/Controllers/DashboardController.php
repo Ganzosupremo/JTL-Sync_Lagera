@@ -1076,7 +1076,7 @@ final class DashboardController
                 <?php endif; ?>
 
                 <?php if (!(bool) Config::get('jtl.worker_discovery_enabled', false)): ?>
-                    <div class="field-hint">La lectura automatica de Worker esta desactivada porque esta JTL API interpreta /workers como SyncId. Ingresa el Identifier UUID del WorkerSyncItem como Sync ID manual; no uses IDs numericos como 1 o 2.</div>
+                    <div class="field-hint">La lectura automatica de Worker esta desactivada. Ingresa el UUID del WorkerSyncItem o el ID numerico que espera tu JTL API. Si JTL dice "Type int", usa kZiel/kShop; para Temu EsSo vimos 2 en SQL.</div>
                 <?php endif; ?>
 
                 <div class="jtl-worker-actions">
@@ -1096,7 +1096,7 @@ final class DashboardController
                             <option value="<?= $this->e($syncId) ?>"><?= $this->e($this->workerSyncLabel($sync)) ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <input name="worker_sync_id_manual" placeholder="Identifier UUID manual" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}">
+                    <input name="worker_sync_id_manual" placeholder="UUID o ID numerico manual" pattern="([0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})">
                     <button class="button" type="submit">Iniciar abgleich</button>
                     <a class="button secondary button-link" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Actualizar estado</a>
                 </form>
