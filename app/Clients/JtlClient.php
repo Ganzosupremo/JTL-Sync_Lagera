@@ -413,8 +413,8 @@ final class JtlClient
         }
 
         if (str_contains($endpoint, '/api/eazybusiness/v2/workers')) {
-            $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/v1/workers', $endpoint);
             $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/workers', $endpoint);
+            $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/v1/workers', $endpoint);
         }
 
         foreach ($candidates as $candidate) {
@@ -438,8 +438,8 @@ final class JtlClient
             }
 
             if (str_contains($candidate, '/api/eazybusiness/v2/workers')) {
-                $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/v1/workers', $candidate);
                 $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/workers', $candidate);
+                $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/v1/workers', $candidate);
             }
 
             if (str_contains($candidate, '/v1/workers')) {
@@ -487,8 +487,20 @@ final class JtlClient
         $headers['api-version'] = '';
         $withoutApiVersion['headers'] = $headers;
 
+        $withApiVersion20 = $options;
+        $headers = is_array($withApiVersion20['headers'] ?? null) ? $withApiVersion20['headers'] : [];
+        $headers['api-version'] = '2.0';
+        $withApiVersion20['headers'] = $headers;
+
+        $withApiVersion21 = $options;
+        $headers = is_array($withApiVersion21['headers'] ?? null) ? $withApiVersion21['headers'] : [];
+        $headers['api-version'] = '2.1';
+        $withApiVersion21['headers'] = $headers;
+
         return [
             'without api-version header' => $withoutApiVersion,
+            'api-version 2.0 header' => $withApiVersion20,
+            'api-version 2.1 header' => $withApiVersion21,
             'default headers' => $options,
         ];
     }
