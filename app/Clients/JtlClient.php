@@ -146,7 +146,7 @@ final class JtlClient
 
         foreach ($this->workerControlEndpointCandidates($endpoint, $syncId) as $candidate) {
             foreach ($this->workerSyncRequestPayloads($syncId, $syncName, $candidate) as $options) {
-                foreach ($this->workerRequestVariants($options) as $requestOptions) {
+                foreach ($this->workerControlRequestVariants($options, $candidate) as $requestOptions) {
                     try {
                         return $this->http->request($method, $candidate, $requestOptions);
                     } catch (HttpException $exception) {
@@ -404,17 +404,29 @@ final class JtlClient
             $candidates[] = $candidate;
         }
 
-        if (!$this->workerActionIsInPath($configured)) {
+        if (!$this->workerActionIsInPath($configured) && !str_contains(strtolower($configured), '/workers/control')) {
             $candidates[] = $configured;
         }
 
-        foreach ($this->workerEndpointCandidates($configured) as $candidate) {
-            if (!$this->workerActionIsInPath($candidate)) {
-                $candidates[] = $candidate;
+        foreach ($candidates as $candidate) {
+            if (str_contains($candidate, '/api/eazybusiness/v1/workers/')) {
+                $candidates[] = str_replace('/api/eazybusiness/v1/workers/', '/api/eazybusiness/workers/', $candidate);
+            }
+
+            if (str_contains($candidate, '/api/eazybusiness/workers/')) {
+                $candidates[] = str_replace('/api/eazybusiness/workers/', '/api/eazybusiness/v1/workers/', $candidate);
+            }
+
+            if (str_contains($candidate, '/api/eazybusiness/v2/workers/')) {
+                $candidates[] = str_replace('/api/eazybusiness/v2/workers/', '/api/eazybusiness/v1/workers/', $candidate);
+                $candidates[] = str_replace('/api/eazybusiness/v2/workers/', '/api/eazybusiness/workers/', $candidate);
             }
         }
 
-        return array_values(array_filter(array_unique($candidates)));
+        return array_values(array_filter(array_unique(array_map(
+            static fn (string $candidate): string => rtrim($candidate, '/'),
+            $candidates
+        ))));
     }
 
     /** @return array<int, string> */
@@ -441,6 +453,27 @@ final class JtlClient
         }
 
         return $candidates;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, array<string, mixed>>
+     */
+    private function workerControlRequestVariants(array $options, string $endpoint): array
+    {
+        $withoutApiVersion = $options;
+        $headers = is_array($withoutApiVersion['headers'] ?? null) ? $withoutApiVersion['headers'] : [];
+        $headers['api-version'] = '';
+        $withoutApiVersion['headers'] = $headers;
+
+        if (str_contains($endpoint, '/api/eazybusiness/v1/') || str_contains($endpoint, '/api/eazybusiness/v2/')) {
+            return ['without api-version header' => $withoutApiVersion];
+        }
+
+        return [
+            'without api-version header' => $withoutApiVersion,
+            'default headers' => $options,
+        ];
     }
 
     /** @return array<int, string> */
