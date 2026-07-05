@@ -1056,7 +1056,7 @@ final class DashboardController
                     </div>
                     <div class="detail">
                         <span>Endpoint</span>
-                        <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'POST') . ' ' . Config::get('jtl.worker_endpoint', '/api/eazybusiness/v1/workers/{syncId}')) ?></strong>
+                        <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'POST') . ' ' . Config::get('jtl.worker_endpoint', '/api/eazybusiness/v2/workers/control')) ?></strong>
                     </div>
                 </div>
 
@@ -2046,7 +2046,7 @@ final class DashboardController
                     <div class="field-hint">En hosting compartido, usa la URL publica del Cloudflare Tunnel, por ejemplo https://jtl-wawi.3plgermany.com.</div>
                 <?php endif; ?>
                 <?php if ($key === 'JTL_WORKER_SYNC_BODY_TEMPLATE'): ?>
-                    <div class="field-hint">Para iniciar usa {"Action":0}. JTL define 0=Start, 1=Stop, 2=Restart.</div>
+                    <div class="field-hint">Para API v2 usa {"syncId":"{{sync_id}}","action":0}. JTL define 0=Start, 1=Stop, 2=Restart.</div>
                 <?php endif; ?>
             </div>
         <?php

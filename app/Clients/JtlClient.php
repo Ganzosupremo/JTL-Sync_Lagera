@@ -142,18 +142,18 @@ final class JtlClient
             throw new RuntimeException('Unsupported JTL worker sync method: ' . $method);
         }
 
-        $options = [];
-        $body = $this->workerSyncBody($syncId, $syncName);
-
-        if ($body !== null) {
-            $options['body'] = $body;
-            $options['headers'] = ['Content-Type' => 'application/json'];
-        }
-
         $lastException = null;
 
-        foreach ($this->workerRequestVariants($options) as $requestOptions) {
-            foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
+        foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
+            $options = [];
+            $body = $this->workerSyncBody($syncId, $syncName, $candidate);
+
+            if ($body !== null) {
+                $options['body'] = $body;
+                $options['headers'] = ['Content-Type' => 'application/json'];
+            }
+
+            foreach ($this->workerRequestVariants($options) as $requestOptions) {
                 try {
                     return $this->http->request($method, $candidate, $requestOptions);
                 } catch (HttpException $exception) {
@@ -402,10 +402,19 @@ final class JtlClient
 
         if (str_contains($endpoint, '/api/eazybusiness/v1/workers')) {
             $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/workers', $endpoint);
+            $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/v2/workers', $endpoint);
+            $candidates[] = preg_replace('#/api/eazybusiness/v1/workers(?:/.*)?$#', '/api/eazybusiness/v2/workers/control', $endpoint) ?? $endpoint;
         }
 
         if (str_contains($endpoint, '/api/eazybusiness/workers')) {
             $candidates[] = str_replace('/api/eazybusiness/workers', '/api/eazybusiness/v1/workers', $endpoint);
+            $candidates[] = str_replace('/api/eazybusiness/workers', '/api/eazybusiness/v2/workers', $endpoint);
+            $candidates[] = preg_replace('#/api/eazybusiness/workers(?:/.*)?$#', '/api/eazybusiness/v2/workers/control', $endpoint) ?? $endpoint;
+        }
+
+        if (str_contains($endpoint, '/api/eazybusiness/v2/workers')) {
+            $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/v1/workers', $endpoint);
+            $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/workers', $endpoint);
         }
 
         foreach ($candidates as $candidate) {
@@ -425,10 +434,20 @@ final class JtlClient
         foreach ($candidates as $candidate) {
             if (str_contains($candidate, '/api/eazybusiness/v1/workers')) {
                 $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/workers', $candidate);
+                $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/v2/workers', $candidate);
+            }
+
+            if (str_contains($candidate, '/api/eazybusiness/v2/workers')) {
+                $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/v1/workers', $candidate);
+                $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/workers', $candidate);
             }
 
             if (str_contains($candidate, '/v1/workers')) {
                 $candidates[] = str_replace('/v1/workers', '/workers', $candidate);
+            }
+
+            if (str_contains($candidate, '/workers/control')) {
+                continue;
             }
         }
 
@@ -449,7 +468,9 @@ final class JtlClient
 
         return str_contains($message, 'formatnotparsable')
             || str_contains($message, 'guid string')
-            || str_contains($message, "property 'reference'");
+            || str_contains($message, "property 'reference'")
+            || str_contains($message, 'unsupported api version')
+            || str_contains($message, 'does not support the api version');
     }
 
     /**
@@ -469,12 +490,13 @@ final class JtlClient
         ];
     }
 
-    private function workerSyncBody(string $syncId, string $syncName): ?string
+    private function workerSyncBody(string $syncId, string $syncName, string $endpoint): ?string
     {
         $template = trim((string) ($this->config['worker_sync_body_template'] ?? ''));
+        $usesControlEndpoint = str_contains(strtolower($endpoint), '/workers/control');
 
-        if ($template === '' || $template === '{}') {
-            $template = '{"Action":0}';
+        if ($template === '' || $template === '{}' || ($usesControlEndpoint && in_array($template, ['{"Action":0}', '{"action":0}'], true))) {
+            $template = $usesControlEndpoint ? '{"syncId":"{{sync_id}}","action":0}' : '{"Action":0}';
         }
 
         $body = str_replace(
