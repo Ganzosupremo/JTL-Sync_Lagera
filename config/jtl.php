@@ -47,6 +47,7 @@ return [
     'worker_discovery_enabled' => Setting::get('JTL_WORKER_DISCOVERY_ENABLED', false),
     'worker_sync_id' => Setting::get('JTL_WORKER_SYNC_ID', ''),
     'worker_sync_name' => Setting::get('JTL_WORKER_SYNC_NAME', ''),
+    'worker_sync_fallback_ids' => array_values(array_filter(array_map('trim', explode(',', (string) Setting::get('JTL_WORKER_SYNC_FALLBACK_IDS', '11'))))),
     'worker_sync_method' => Setting::get('JTL_WORKER_SYNC_METHOD', 'PUT'),
     'worker_sync_body_template' => Setting::get('JTL_WORKER_SYNC_BODY_TEMPLATE', '{"Action":0}'),
     'items_endpoint' => Setting::get('JTL_ITEMS_ENDPOINT', '/api/eazybusiness/items'),

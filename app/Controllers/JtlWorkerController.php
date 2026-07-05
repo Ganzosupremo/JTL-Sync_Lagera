@@ -255,6 +255,11 @@ final class JtlWorkerController
                 . ' Tip: esta JTL API espera un Sync ID numerico. Usa el kZiel/kShop de Worker.tTarget; para Temu EsSo vimos 2 en SQL.';
         }
 
+        if (str_contains($message, 'HTTP 500') && str_contains($message, 'Unknown Internal Error')) {
+            return $message
+                . ' Tip: JTL acepto la ruta y el tipo, pero fallo dentro del Worker. Revisa el Status raw en la UI y Worker.tStatus/Worker.tSetup en SQL; si el target esta Deactivated, hay que activarlo en JTL Worker/Plattformen antes de iniciarlo por API.';
+        }
+
         return $message;
     }
 

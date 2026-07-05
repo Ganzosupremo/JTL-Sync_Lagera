@@ -92,6 +92,12 @@ final class DashboardController
                     $prefix = $jtlWorkerError !== null ? $jtlWorkerError . ' | ' : '';
                     $jtlWorkerError = $prefix . 'Worker status: ' . $exception->getMessage();
                 }
+            } elseif (trim((string) Config::get('jtl.worker_sync_id', '')) !== '') {
+                try {
+                    $jtlWorkerStatus = $jtl->getWorkerStatus();
+                } catch (\Throwable $exception) {
+                    $jtlWorkerError = 'Worker status: ' . $exception->getMessage();
+                }
             }
 
             try {
@@ -1076,7 +1082,7 @@ final class DashboardController
                 <?php endif; ?>
 
                 <?php if (!(bool) Config::get('jtl.worker_discovery_enabled', false)): ?>
-                    <div class="field-hint">La lectura automatica de Worker esta desactivada. Ingresa el UUID del WorkerSyncItem o el ID numerico que espera tu JTL API. Si JTL dice "Type int", usa kZiel/kShop; para Temu EsSo vimos 2 en SQL.</div>
+                    <div class="field-hint">La lectura automatica de Worker esta desactivada. Ingresa el UUID o ID numerico que espera tu JTL API. Si JTL responde 500 con el shop ID, la app prueba tambien los fallback IDs configurados; para marketplace suele ser 11.</div>
                 <?php endif; ?>
 
                 <div class="jtl-worker-actions">

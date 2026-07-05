@@ -63,15 +63,23 @@ final class JtlClient
         }
 
         $lastException = null;
+        $syncIds = $this->workerControlIds((string) ($this->config['worker_sync_id'] ?? ''));
+        $syncIds = $syncIds !== [] ? $syncIds : [''];
 
-        foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
-            try {
-                return $this->http->get($candidate);
-            } catch (HttpException $exception) {
-                $lastException = $exception;
+        foreach ($this->workerCanonicalStatusEndpoints() as $candidate) {
+            foreach ($syncIds as $syncId) {
+                $options = $syncId !== '' ? ['query' => ['syncId' => $syncId]] : [];
 
-                if (!$this->shouldTryWorkerEndpointFallback($exception)) {
-                    throw $exception;
+                foreach ($this->workerControlRequestVariants($options, $candidate) as $requestOptions) {
+                    try {
+                        return $this->http->get($candidate, $requestOptions);
+                    } catch (HttpException $exception) {
+                        $lastException = $exception;
+
+                        if (!$this->shouldTryWorkerEndpointFallback($exception)) {
+                            throw $exception;
+                        }
+                    }
                 }
             }
         }
@@ -154,7 +162,7 @@ final class JtlClient
                     } catch (HttpException $exception) {
                         $lastException = $exception;
 
-                        if (!$this->shouldTryWorkerEndpointFallback($exception)) {
+                        if (!$this->shouldTryWorkerControlFallback($exception)) {
                             throw $exception;
                         }
                     }
@@ -407,12 +415,40 @@ final class JtlClient
     /** @return array<int, string> */
     private function workerCanonicalControlEndpoints(string $syncId): array
     {
-        $basePath = strtolower(trim((string) (parse_url((string) ($this->config['base_url'] ?? ''), PHP_URL_PATH) ?: ''), '/'));
-        $prefix = str_ends_with($basePath, 'api/eazybusiness')
-            ? '/v1/workers/'
-            : '/api/eazybusiness/v1/workers/';
+        $prefix = $this->workerCanonicalPrefix() . '/workers/';
+        $ids = $this->workerControlIds($syncId);
 
-        return [$prefix . rawurlencode($syncId)];
+        return array_map(
+            static fn (string $id): string => $prefix . rawurlencode($id),
+            $ids
+        );
+    }
+
+    /** @return array<int, string> */
+    private function workerCanonicalStatusEndpoints(): array
+    {
+        return [$this->workerCanonicalPrefix() . '/workers/status'];
+    }
+
+    private function workerCanonicalPrefix(): string
+    {
+        $basePath = strtolower(trim((string) (parse_url((string) ($this->config['base_url'] ?? ''), PHP_URL_PATH) ?: ''), '/'));
+
+        return str_ends_with($basePath, 'api/eazybusiness') ? '/v1' : '/api/eazybusiness/v1';
+    }
+
+    /** @return array<int, string> */
+    private function workerControlIds(string $syncId): array
+    {
+        $ids = [$syncId];
+
+        foreach (($this->config['worker_sync_fallback_ids'] ?? []) as $fallbackId) {
+            if (is_scalar($fallbackId)) {
+                $ids[] = trim((string) $fallbackId);
+            }
+        }
+
+        return array_values(array_filter(array_unique($ids), static fn (string $id): bool => $id !== ''));
     }
 
     /** @return array<int, string> */
@@ -590,6 +626,23 @@ final class JtlClient
             || str_contains($message, "property 'reference'")
             || str_contains($message, 'unsupported api version')
             || str_contains($message, 'does not support the api version');
+    }
+
+    private function shouldTryWorkerControlFallback(HttpException $exception): bool
+    {
+        if ($this->shouldTryWorkerEndpointFallback($exception)) {
+            return true;
+        }
+
+        if ($exception->statusCode() !== 500) {
+            return false;
+        }
+
+        $message = strtolower($exception->getMessage());
+
+        return str_contains($message, 'unknown internal error')
+            || str_contains($message, '"errorcode":"unknown"')
+            || str_contains($message, '"title":"internal server error"');
     }
 
     /**
