@@ -145,22 +145,16 @@ final class JtlClient
         $lastException = null;
 
         foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
-            $options = [];
-            $body = $this->workerSyncBody($syncId, $syncName, $candidate);
+            foreach ($this->workerSyncRequestPayloads($syncId, $syncName, $candidate) as $options) {
+                foreach ($this->workerRequestVariants($options) as $requestOptions) {
+                    try {
+                        return $this->http->request($method, $candidate, $requestOptions);
+                    } catch (HttpException $exception) {
+                        $lastException = $exception;
 
-            if ($body !== null) {
-                $options['body'] = $body;
-                $options['headers'] = ['Content-Type' => 'application/json'];
-            }
-
-            foreach ($this->workerRequestVariants($options) as $requestOptions) {
-                try {
-                    return $this->http->request($method, $candidate, $requestOptions);
-                } catch (HttpException $exception) {
-                    $lastException = $exception;
-
-                    if (!$this->shouldTryWorkerEndpointFallback($exception)) {
-                        throw $exception;
+                        if (!$this->shouldTryWorkerEndpointFallback($exception)) {
+                            throw $exception;
+                        }
                     }
                 }
             }
@@ -471,6 +465,8 @@ final class JtlClient
             || str_contains($message, 'api versions were requested')
             || str_contains($message, 'only a single api version')
             || str_contains($message, 'guid string')
+            || str_contains($message, 'invalid key format')
+            || str_contains($message, 'key must from type guid')
             || str_contains($message, "property 'reference'")
             || str_contains($message, 'unsupported api version')
             || str_contains($message, 'does not support the api version');
@@ -532,6 +528,62 @@ final class JtlClient
         }
 
         return $body;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function workerSyncRequestPayloads(string $syncId, string $syncName, string $endpoint): array
+    {
+        $payloads = [];
+        $seen = [];
+        $configuredBody = $this->workerSyncBody($syncId, $syncName, $endpoint);
+
+        if ($configuredBody !== null) {
+            $this->addWorkerBody($payloads, $seen, $configuredBody);
+        }
+
+        if (!str_contains(strtolower($endpoint), '/workers/control')) {
+            return $payloads !== [] ? $payloads : [[]];
+        }
+
+        foreach ([
+            ['syncId' => $syncId, 'action' => 0],
+            ['SyncId' => $syncId, 'Action' => 0],
+            ['syncId' => ['value' => $syncId], 'action' => 0],
+            ['SyncId' => ['Value' => $syncId], 'Action' => 0],
+            ['syncId' => ['type' => 'guid', 'value' => $syncId], 'action' => 0],
+            ['SyncId' => ['Type' => 'guid', 'Value' => $syncId], 'Action' => 0],
+            ['syncId' => ['reference' => $syncId], 'action' => 0],
+            ['SyncId' => ['Reference' => $syncId], 'Action' => 0],
+            ['syncId' => ['type' => 'guid', 'reference' => $syncId], 'action' => 0],
+            ['SyncId' => ['Type' => 'guid', 'Reference' => $syncId], 'Action' => 0],
+            ['syncId' => ['key' => $syncId], 'action' => 0],
+            ['SyncId' => ['Key' => $syncId], 'Action' => 0],
+            ['syncId' => 'guid:' . $syncId, 'action' => 0],
+            ['SyncId' => 'guid:' . $syncId, 'Action' => 0],
+            ['syncId' => 'Guid:' . $syncId, 'action' => 0],
+            ['SyncId' => 'Guid:' . $syncId, 'Action' => 0],
+        ] as $payload) {
+            $this->addWorkerBody($payloads, $seen, json_encode($payload, JSON_THROW_ON_ERROR));
+        }
+
+        return $payloads;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $payloads
+     * @param array<string, bool> $seen
+     */
+    private function addWorkerBody(array &$payloads, array &$seen, string $body): void
+    {
+        if (isset($seen[$body])) {
+            return;
+        }
+
+        $seen[$body] = true;
+        $payloads[] = [
+            'body' => $body,
+            'headers' => ['Content-Type' => 'application/json'],
+        ];
     }
 
     private function jsonStringFragment(string $value): string
