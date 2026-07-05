@@ -64,6 +64,7 @@ final class SettingsCatalog
                     self::text('JTL_WORKERS_ENDPOINT', 'Workers endpoint', '/api/eazybusiness/v1/workers'),
                     self::text('JTL_WORKER_ENDPOINT', 'Worker detail endpoint', '/api/eazybusiness/v1/workers/{id}'),
                     self::text('JTL_WORKER_STATUS_ENDPOINT', 'Worker status endpoint', '/api/eazybusiness/v1/workers/status'),
+                    self::boolean('JTL_WORKER_DISCOVERY_ENABLED', 'Leer lista/status de Worker', false),
                     self::select('JTL_WORKER_SYNC_METHOD', 'Metodo worker sync', 'POST', ['POST', 'PUT', 'PATCH', 'GET']),
                     self::textarea('JTL_WORKER_SYNC_BODY_TEMPLATE', 'Worker sync body JSON', '{}'),
                     self::text('JTL_ITEMS_ENDPOINT', 'Items endpoint', '/api/eazybusiness/items'),

@@ -76,17 +76,19 @@ final class DashboardController
         ];
 
         if ($tab === 'jtl-orders') {
-            try {
-                $jtlWorkerSyncs = $jtl->getWorkerSyncs();
-            } catch (\Throwable $exception) {
-                $jtlWorkerError = 'Worker syncs: ' . $exception->getMessage();
-            }
+            if ((bool) Config::get('jtl.worker_discovery_enabled', false)) {
+                try {
+                    $jtlWorkerSyncs = $jtl->getWorkerSyncs();
+                } catch (\Throwable $exception) {
+                    $jtlWorkerError = 'Worker syncs: ' . $exception->getMessage();
+                }
 
-            try {
-                $jtlWorkerStatus = $jtl->getWorkerStatus();
-            } catch (\Throwable $exception) {
-                $prefix = $jtlWorkerError !== null ? $jtlWorkerError . ' | ' : '';
-                $jtlWorkerError = $prefix . 'Worker status: ' . $exception->getMessage();
+                try {
+                    $jtlWorkerStatus = $jtl->getWorkerStatus();
+                } catch (\Throwable $exception) {
+                    $prefix = $jtlWorkerError !== null ? $jtlWorkerError . ' | ' : '';
+                    $jtlWorkerError = $prefix . 'Worker status: ' . $exception->getMessage();
+                }
             }
 
             try {
@@ -1053,6 +1055,10 @@ final class DashboardController
                     <?php if ($this->looksLikeForbiddenWorkerError($error)): ?>
                         <div class="notice">JTL respondio 403 para Worker. El API token actual probablemente no tiene los scopes <strong>worker.getworkersyncs</strong> y <strong>system.worker.read</strong>. Guarda ajustes y registra la app de nuevo en JTL-Wawi para generar un token nuevo.</div>
                     <?php endif; ?>
+                <?php endif; ?>
+
+                <?php if (!(bool) Config::get('jtl.worker_discovery_enabled', false)): ?>
+                    <div class="field-hint">La lectura automatica de Worker esta desactivada porque esta JTL API interpreta /workers como SyncId. Ingresa el Sync ID manual para iniciar el abgleich.</div>
                 <?php endif; ?>
 
                 <form class="jtl-worker-form" action="<?= $this->e($this->url('/jtl/workers/start')) ?>" method="post">

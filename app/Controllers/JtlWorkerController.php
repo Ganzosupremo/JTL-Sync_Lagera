@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Clients\JtlClient;
+use App\Support\Config;
 use App\Support\Database;
 use App\Support\Logger;
 use RuntimeException;
@@ -59,6 +60,10 @@ final class JtlWorkerController
     {
         if ($syncId !== '') {
             return [$syncId, $syncName];
+        }
+
+        if (!(bool) Config::get('jtl.worker_discovery_enabled', false)) {
+            throw new RuntimeException('Ingresa un Sync ID manual. La lectura automatica de /workers esta desactivada para esta JTL API.');
         }
 
         $syncs = $jtl->getWorkerSyncs();
