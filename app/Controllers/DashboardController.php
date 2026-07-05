@@ -25,6 +25,7 @@ use App\Support\Auth;
 use App\Support\Config;
 use App\Support\Database;
 use App\Support\HttpException;
+use App\Support\JtlScopeList;
 use App\Support\Setting;
 use App\Support\SettingsCatalog;
 
@@ -2047,6 +2048,10 @@ final class DashboardController
 
         if (is_bool($value)) {
             return $value ? 'true' : 'false';
+        }
+
+        if ($key === 'JTL_MANDATORY_API_SCOPES' && is_scalar($value)) {
+            return JtlScopeList::sanitizeString((string) $value);
         }
 
         return is_scalar($value) ? (string) $value : $default;

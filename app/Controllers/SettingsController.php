@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\AppUser;
+use App\Support\JtlScopeList;
 use App\Support\Setting;
 use App\Support\SettingsCatalog;
 
@@ -72,6 +73,10 @@ final class SettingsController
 
         if ($type === 'number') {
             return ctype_digit($value) ? $value : $default;
+        }
+
+        if ($key === 'JTL_MANDATORY_API_SCOPES') {
+            return JtlScopeList::sanitizeString($value);
         }
 
         return $value;

@@ -72,7 +72,7 @@ final class SettingsCatalog
                     self::text('JTL_STOCKS_ENDPOINT', 'Stocks endpoint', '/api/eazybusiness/stocks'),
                     self::text('JTL_PRODUCT_IMPORT_CATEGORY_ID', 'Categoria JTL para importar productos', ''),
                     self::text('JTL_PRODUCT_IMPORT_WAREHOUSE_ID', 'Warehouse JTL para importar stock', ''),
-                    self::textarea('JTL_MANDATORY_API_SCOPES', 'Scopes obligatorios', 'salesorders.read,salesorders.write,items.read,items.write,item.queryitems,item.createitem,item.updateitem,inventories.read,inventories.write,stock.querystocksperitem,stock.stockadjustment,deliverynotes.read,deliverynotes.write,worker.getworkersyncs,worker.putworkersyncaction,system.worker.read,system.worker.write'),
+                    self::textarea('JTL_MANDATORY_API_SCOPES', 'Scopes obligatorios', JtlScopeList::defaultMandatoryString()),
                     self::textarea('JTL_OPTIONAL_API_SCOPES', 'Scopes opcionales', ''),
                 ],
             ],

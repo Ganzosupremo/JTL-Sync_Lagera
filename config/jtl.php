@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Support\Setting;
+use App\Support\JtlScopeList;
 
 $query = [];
 $rawQuery = Setting::get('JTL_NEW_ORDERS_QUERY', '');
@@ -22,30 +23,10 @@ $apiVersionCandidates = array_values(array_filter(array_map(
     'trim',
     explode(',', (string) Setting::get('JTL_API_VERSION_CANDIDATES', '1.0,2.0'))
 )));
-$defaultMandatoryScopes = [
-    'salesorders.read',
-    'salesorders.write',
-    'items.read',
-    'items.write',
-    'item.queryitems',
-    'item.createitem',
-    'item.updateitem',
-    'inventories.read',
-    'inventories.write',
-    'stock.querystocksperitem',
-    'stock.stockadjustment',
-    'deliverynotes.read',
-    'deliverynotes.write',
-    'worker.getworkersyncs',
-    'worker.putworkersyncaction',
-    'system.worker.read',
-    'system.worker.write',
-];
-$configuredMandatoryScopes = array_values(array_filter(array_map(
-    'trim',
-    explode(',', (string) Setting::get('JTL_MANDATORY_API_SCOPES', implode(',', $defaultMandatoryScopes)))
-)));
-$mandatoryScopes = array_values(array_unique(array_merge($configuredMandatoryScopes, $defaultMandatoryScopes)));
+$mandatoryScopes = JtlScopeList::mandatoryFromConfigured((string) Setting::get(
+    'JTL_MANDATORY_API_SCOPES',
+    JtlScopeList::defaultMandatoryString()
+));
 
 return [
     'base_url' => Setting::get('JTL_BASE_URL', 'https://127.0.0.1:5883'),
