@@ -65,6 +65,7 @@ final class JtlWorkerController
             $jtl = new JtlClient();
             [$syncId, $syncName] = $this->resolveSync($jtl, $syncId, $syncName);
             $syncId = $this->normalizeWorkerSyncId($syncId);
+            (new Logger())->info('jtl_worker', 'Worker control debug: ' . $this->shortJson($jtl->workerControlDebugInfo($syncId)));
             $response = $jtl->startWorkerSync($syncId, $syncName);
             $message = 'JTL Worker abgleich iniciado.';
 

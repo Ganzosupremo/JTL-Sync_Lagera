@@ -13,6 +13,8 @@ use Throwable;
 
 final class JtlClient
 {
+    public const WORKER_CONTROL_CLIENT_VERSION = 'worker-v1-path-only-20260705';
+
     private HttpClient $http;
 
     /** @var array<string, mixed> */
@@ -145,6 +147,10 @@ final class JtlClient
         $lastException = null;
 
         foreach ($this->workerControlEndpointCandidates($endpoint, $syncId) as $candidate) {
+            if (!$this->isSupportedWorkerControlEndpoint($candidate)) {
+                continue;
+            }
+
             foreach ($this->workerSyncRequestPayloads($syncId, $syncName, $candidate) as $options) {
                 foreach ($this->workerControlRequestVariants($options, $candidate) as $requestOptions) {
                     try {
@@ -161,6 +167,18 @@ final class JtlClient
         }
 
         throw $lastException ?? new RuntimeException('Unable to start JTL worker sync.');
+    }
+
+    /** @return array<string, mixed> */
+    public function workerControlDebugInfo(string $syncId): array
+    {
+        $endpoint = (string) ($this->config['worker_endpoint'] ?? '');
+
+        return [
+            'version' => self::WORKER_CONTROL_CLIENT_VERSION,
+            'configured_endpoint' => $endpoint,
+            'candidates' => $this->workerControlEndpointCandidates($endpoint, $syncId),
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -441,19 +459,24 @@ final class JtlClient
 
     private function workerVersionedControlEndpoint(string $endpoint): string
     {
-        if (str_contains($endpoint, '/api/eazybusiness/v1/workers/')) {
-            return $endpoint;
-        }
+        $normalized = preg_replace(
+            '#/api/eazybusiness/(?:v[0-9]+/)?workers/#i',
+            '/api/eazybusiness/v1/workers/',
+            $endpoint,
+            1
+        );
 
-        if (str_contains($endpoint, '/api/eazybusiness/v2/workers/')) {
-            return str_replace('/api/eazybusiness/v2/workers/', '/api/eazybusiness/v1/workers/', $endpoint);
-        }
+        return is_string($normalized) ? $normalized : $endpoint;
+    }
 
-        if (str_contains($endpoint, '/api/eazybusiness/workers/')) {
-            return str_replace('/api/eazybusiness/workers/', '/api/eazybusiness/v1/workers/', $endpoint);
-        }
+    private function isSupportedWorkerControlEndpoint(string $endpoint): bool
+    {
+        $path = strtolower(parse_url($endpoint, PHP_URL_PATH) ?: $endpoint);
 
-        return $endpoint;
+        return preg_match(
+            '#/api/eazybusiness/v1/workers/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$#',
+            $path
+        ) === 1;
     }
 
     /**
