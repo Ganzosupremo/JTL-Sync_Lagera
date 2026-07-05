@@ -1044,7 +1044,7 @@ final class DashboardController
                     </div>
                     <div class="detail">
                         <span>Endpoint</span>
-                        <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'POST') . ' ' . Config::get('jtl.worker_endpoint', '/api/eazybusiness/workers/{id}')) ?></strong>
+                        <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'POST') . ' ' . Config::get('jtl.worker_endpoint', '/api/eazybusiness/v1/workers/{id}')) ?></strong>
                     </div>
                 </div>
 

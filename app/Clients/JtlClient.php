@@ -388,12 +388,12 @@ final class JtlClient
     {
         $candidates = [$endpoint];
 
-        if (str_contains($endpoint, '/api/eazybusiness/workers')) {
-            $candidates[] = str_replace('/api/eazybusiness/workers', '/api/eazybusiness/v1/workers', $endpoint);
+        if (str_contains($endpoint, '/api/eazybusiness/v1/workers')) {
+            return $candidates;
         }
 
-        if (str_contains($endpoint, '/api/eazybusiness/v1/workers')) {
-            $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/workers', $endpoint);
+        if (str_contains($endpoint, '/api/eazybusiness/workers')) {
+            $candidates[] = str_replace('/api/eazybusiness/workers', '/api/eazybusiness/v1/workers', $endpoint);
         }
 
         return array_values(array_unique($candidates));
