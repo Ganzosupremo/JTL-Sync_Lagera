@@ -215,6 +215,15 @@ final class DashboardController
         array $logs,
         mixed $notice
     ): string {
+        $automationEnabled = (bool) Config::get('automation.enabled', true);
+        $automationIntervalMinutes = max(1, (int) Config::get('automation.interval_minutes', 360));
+        $automationLastRun = $automationState['last_success_at'] ?? null;
+        $automationNextRun = $this->automationNextRunAt(
+            is_string($automationLastRun) ? $automationLastRun : null,
+            $automationIntervalMinutes,
+            $automationEnabled
+        );
+        $automationLastSummary = $this->automationLastSummary($automationState);
         ob_start();
         ?>
 <!doctype html>
@@ -333,7 +342,7 @@ final class DashboardController
 
         .summary {
             display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(6, minmax(0, 1fr));
             gap: 12px;
             margin-bottom: 18px;
         }
@@ -359,6 +368,13 @@ final class DashboardController
         .metric strong {
             display: block;
             font-size: 18px;
+            overflow-wrap: anywhere;
+        }
+
+        .metric-note {
+            color: var(--muted);
+            font-size: 12px;
+            margin-top: 8px;
             overflow-wrap: anywhere;
         }
 
@@ -802,6 +818,11 @@ final class DashboardController
                 <span>API Packiyo</span>
                 <strong><span class="status <?= $this->e($summary['packiyo_status']) ?>"><?= $this->e($summary['packiyo_status']) ?></span></strong>
             </div>
+            <div class="metric">
+                <span>Proximo auto sync</span>
+                <strong><?= $this->e($automationNextRun) ?></strong>
+                <div class="metric-note"><?= $this->e($automationLastSummary) ?></div>
+            </div>
         </div>
 
         <nav class="tabs" aria-label="Dashboard">
@@ -1195,15 +1216,24 @@ final class DashboardController
     ): string
     {
         $filtersActive = $customerFilter !== '' || $mappedCustomerFilter !== '';
+        $bulkDisabled = $mappedCustomerFilter === '__unmapped__';
         ob_start();
         ?>
             <section>
                 <div class="section-head">
                     <h2>Ordenes nuevas de JTL</h2>
-                    <form action="<?= $this->e($this->url('/')) ?>" method="get">
-                        <input type="hidden" name="tab" value="jtl-orders">
-                        <button class="button" type="submit">Recargar desde JTL</button>
-                    </form>
+                    <div class="actions">
+                        <form action="<?= $this->e($this->url('/sync')) ?>" method="post">
+                            <input type="hidden" name="return_tab" value="jtl-orders">
+                            <input type="hidden" name="jtl_customer" value="<?= $this->e($customerFilter) ?>">
+                            <input type="hidden" name="jtl_mapped_customer" value="<?= $this->e($mappedCustomerFilter) ?>">
+                            <button class="button" type="submit" <?= $bulkDisabled ? 'disabled' : '' ?>><?= $bulkDisabled ? 'Mapear antes de enviar' : ($filtersActive ? 'Enviar filtradas a Packiyo' : 'Enviar todas a Packiyo') ?></button>
+                        </form>
+                        <form action="<?= $this->e($this->url('/')) ?>" method="get">
+                            <input type="hidden" name="tab" value="jtl-orders">
+                            <button class="button secondary" type="submit">Recargar desde JTL</button>
+                        </form>
+                    </div>
                 </div>
                 <div class="section-body">
                     <?= $this->renderJtlWorkerPanel($jtlWorkerSyncs, $jtlWorkerStatus, $jtlWorkerError) ?>
@@ -2661,7 +2691,27 @@ final class DashboardController
             return 'proximo tick';
         }
 
-        return date('Y-m-d H:i:s', $timestamp + ($intervalMinutes * 60));
+        $nextRun = $timestamp + ($intervalMinutes * 60);
+
+        if ($nextRun <= time()) {
+            return 'proximo tick';
+        }
+
+        return date('Y-m-d H:i:s', $nextRun);
+    }
+
+    /** @param array<string, mixed>|null $state */
+    private function automationLastSummary(?array $state): string
+    {
+        $message = $state['last_message'] ?? null;
+
+        if (!is_string($message) || trim($message) === '') {
+            return 'Sin corridas previas.';
+        }
+
+        $message = trim($message);
+
+        return strlen($message) > 96 ? substr($message, 0, 93) . '...' : $message;
     }
 
     private function automationTickUrl(): string

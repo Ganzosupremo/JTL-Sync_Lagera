@@ -21,7 +21,10 @@ final class SyncController
 
         Database::migrate();
 
-        $summary = (new OrderSyncService())->sync();
+        $returnTab = $this->returnTab($_POST['return_tab'] ?? 'overview');
+        $customerFilter = $this->postedString('jtl_customer');
+        $mappedCustomerFilter = $this->postedString('jtl_mapped_customer');
+        $summary = (new OrderSyncService())->sync($customerFilter, $mappedCustomerFilter);
 
         if ($this->wantsJson()) {
             header('Content-Type: application/json; charset=UTF-8');
@@ -37,7 +40,22 @@ final class SyncController
             $summary['failed']
         );
 
-        header('Location: ' . $this->url('/') . '?sync=' . rawurlencode($message), true, 303);
+        $params = [
+            'tab' => $returnTab,
+            'notice' => $message,
+        ];
+
+        if ($returnTab === 'jtl-orders') {
+            if ($customerFilter !== '') {
+                $params['jtl_customer'] = $customerFilter;
+            }
+
+            if ($mappedCustomerFilter !== '') {
+                $params['jtl_mapped_customer'] = $mappedCustomerFilter;
+            }
+        }
+
+        header('Location: ' . $this->url('/') . '?' . http_build_query($params), true, 303);
     }
 
     public function runOne(): void
@@ -87,10 +105,17 @@ final class SyncController
 
     private function returnTab(mixed $tab): string
     {
-        $tab = is_string($tab) ? $tab : 'customer-mappings';
-        $allowed = ['jtl-orders', 'customer-mappings'];
+        $tab = is_string($tab) ? $tab : 'overview';
+        $allowed = ['overview', 'jtl-orders', 'customer-mappings'];
 
-        return in_array($tab, $allowed, true) ? $tab : 'customer-mappings';
+        return in_array($tab, $allowed, true) ? $tab : 'overview';
+    }
+
+    private function postedString(string $key): string
+    {
+        $value = $_POST[$key] ?? '';
+
+        return is_scalar($value) ? trim((string) $value) : '';
     }
 
     private function url(string $path): string

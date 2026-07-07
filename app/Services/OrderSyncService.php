@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Clients\JtlClient;
 use App\Clients\PackiyoClient;
+use App\Models\PackiyoCustomerMapping;
 use App\Support\HttpException;
 use App\Support\Logger;
 use RuntimeException;
@@ -22,7 +23,7 @@ final class OrderSyncService
     }
 
     /** @return array{total: int, created: int, linked: int, skipped: int, failed: int} */
-    public function sync(): array
+    public function sync(?string $customerFilter = null, ?string $mappedCustomerFilter = null): array
     {
         $summary = [
             'total' => 0,
@@ -42,6 +43,7 @@ final class OrderSyncService
             return $summary;
         }
 
+        $orders = $this->filterOrders($orders, $customerFilter, $mappedCustomerFilter);
         $summary['total'] = count($orders);
 
         foreach ($orders as $order) {
@@ -72,6 +74,49 @@ final class OrderSyncService
         );
 
         return $summary;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $orders
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterOrders(array $orders, ?string $customerFilter, ?string $mappedCustomerFilter): array
+    {
+        $customerFilter = strtolower(trim((string) $customerFilter));
+        $mappedCustomerFilter = trim((string) $mappedCustomerFilter);
+
+        if ($customerFilter === '' && $mappedCustomerFilter === '') {
+            return $orders;
+        }
+
+        $resolver = new PackiyoCustomerResolver();
+        $customerMappings = new PackiyoCustomerMapping();
+
+        return array_values(array_filter(
+            $orders,
+            function (array $order) use ($customerFilter, $mappedCustomerFilter, $resolver, $customerMappings): bool {
+                if ($customerFilter !== '') {
+                    $contact = strtolower((string) ($this->orderContact($order) ?? ''));
+
+                    if (!str_contains($contact, $customerFilter)) {
+                        return false;
+                    }
+                }
+
+                if ($mappedCustomerFilter === '') {
+                    return true;
+                }
+
+                $mapping = $customerMappings->findForCandidates($resolver->candidates($order));
+
+                if ($mappedCustomerFilter === '__unmapped__') {
+                    return $mapping === null;
+                }
+
+                return $mapping !== null
+                    && (string) ($mapping['packiyo_customer_id'] ?? '') === $mappedCustomerFilter;
+            }
+        ));
     }
 
     /** @return array{total: int, created: int, linked: int, skipped: int, failed: int, message: string} */
@@ -264,6 +309,66 @@ final class OrderSyncService
         return $this->mapper()->jtlOrderNumber($order)
             ?? $this->mapper()->jtlOrderId($order)
             ?? 'desconocida';
+    }
+
+    /** @param array<string, mixed> $order */
+    private function orderContact(array $order): ?string
+    {
+        $customer = $this->firstArray($order, ['customer', 'Customer', 'customer_data', 'CustomerData', 'client', 'Client']);
+        $billing = $this->firstArray($order, ['billing_address', 'billingAddress', 'BillingAddress', 'invoiceAddress', 'InvoiceAddress']);
+        $shipping = $this->firstArray($order, ['shipping_address', 'shippingAddress', 'ShippingAddress', 'deliveryAddress', 'DeliveryAddress', 'Shipmentaddress', 'ShipmentAddress', 'shipmentAddress']);
+
+        return $this->fullName($shipping)
+            ?? $this->fullName($billing)
+            ?? $this->fullName($customer)
+            ?? $this->firstString($shipping, ['email', 'Email', 'mail', 'Mail', 'EmailAddress'])
+            ?? $this->firstString($billing, ['email', 'Email', 'mail', 'Mail', 'EmailAddress']);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function firstArray(array $data, array $keys): array
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $data) && is_array($data[$key])) {
+                return $data[$key];
+            }
+        }
+
+        return [];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function firstString(array $data, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $data) || !is_scalar($data[$key])) {
+                continue;
+            }
+
+            $value = trim((string) $data[$key]);
+
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function fullName(array $data): ?string
+    {
+        $fullName = $this->firstString($data, ['name', 'Name', 'full_name', 'fullName', 'FullName']);
+
+        if ($fullName !== null) {
+            return $fullName;
+        }
+
+        $firstName = $this->firstString($data, ['first_name', 'firstName', 'firstname', 'FirstName']);
+        $lastName = $this->firstString($data, ['last_name', 'lastName', 'lastname', 'LastName']);
+        $name = trim((string) ($firstName . ' ' . $lastName));
+
+        return $name !== '' ? $name : null;
     }
 
     /**
