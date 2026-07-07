@@ -92,12 +92,6 @@ final class DashboardController
                     $prefix = $jtlWorkerError !== null ? $jtlWorkerError . ' | ' : '';
                     $jtlWorkerError = $prefix . 'Worker status: ' . $exception->getMessage();
                 }
-            } elseif (trim((string) Config::get('jtl.worker_sync_id', '')) !== '') {
-                try {
-                    $jtlWorkerStatus = $jtl->getWorkerStatus();
-                } catch (\Throwable $exception) {
-                    $jtlWorkerError = 'Worker status: ' . $exception->getMessage();
-                }
             }
 
             try {
@@ -141,6 +135,7 @@ final class DashboardController
             $packiyoCustomers->listByActive(false),
             $syncStates->get('packiyo_customers'),
             $syncStates->get('fulfillment_sync'),
+            $syncStates->get('automation'),
             $fulfillmentSyncs->recent(50),
             $jtlOrders,
             $jtlOrdersError,
@@ -174,6 +169,7 @@ final class DashboardController
      * @param array<int, array<string, mixed>> $inactiveCustomers
      * @param array<string, mixed>|null $customerSyncState
      * @param array<string, mixed>|null $fulfillmentState
+     * @param array<string, mixed>|null $automationState
      * @param array<int, array<string, mixed>> $fulfillmentRows
      * @param array<int, array<string, mixed>> $jtlOrders
      * @param array<int, array<string, mixed>> $jtlWorkerSyncs
@@ -197,6 +193,7 @@ final class DashboardController
         array $inactiveCustomers,
         ?array $customerSyncState,
         ?array $fulfillmentState,
+        ?array $automationState,
         array $fulfillmentRows,
         array $jtlOrders,
         ?string $jtlOrdersError,
@@ -519,11 +516,11 @@ final class DashboardController
             padding-bottom: 14px;
         }
 
-        .jtl-worker-form {
-            display: grid;
-            grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px) auto auto;
-            gap: 10px;
-            margin-bottom: 8px;
+        .worker-checklist {
+            color: var(--muted);
+            line-height: 1.55;
+            margin: 10px 0 12px;
+            padding-left: 20px;
         }
 
         .jtl-worker-actions {
@@ -531,6 +528,15 @@ final class DashboardController
             flex-wrap: wrap;
             gap: 10px;
             margin: 10px 0;
+        }
+
+        .code-block {
+            background: #111827;
+            border-radius: 6px;
+            color: #f9fafb;
+            overflow-x: auto;
+            padding: 12px;
+            white-space: pre-wrap;
         }
 
         .jtl-order-filter-form {
@@ -736,7 +742,7 @@ final class DashboardController
                 padding-top: 18px;
             }
 
-            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .jtl-worker-form, .jtl-order-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid {
+            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .jtl-order-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -760,7 +766,7 @@ final class DashboardController
                 <p class="subtitle">JTL -> Packiyo</p>
             </div>
             <div class="actions">
-                <form action="<?= $this->e($this->url('/sync')) ?>" method="post">
+                <form action="<?= $this->e($this->url('/automation/manual')) ?>" method="post">
                     <button class="button" type="submit">Sincronizar ahora</button>
                 </form>
                 <?php if ((new Auth())->enabled()): ?>
@@ -812,6 +818,7 @@ final class DashboardController
         <div class="grid">
             <?php if ($tab === 'overview'): ?>
                 <?= $this->renderRegistration($registration) ?>
+                <?= $this->renderAutomation($automationState) ?>
                 <?= $this->renderOrders($mappings) ?>
             <?php endif; ?>
 
@@ -924,6 +931,67 @@ final class DashboardController
 
                     <?php if ($this->registrationStatus($registration) === 'registration_pending'): ?>
                         <div class="field-hint">Si cancelaste la solicitud en JTL-Wawi o necesitas cambiar scopes, descarta la pendiente local y luego registra la app de nuevo.</div>
+                    <?php endif; ?>
+                </div>
+            </section>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    /** @param array<string, mixed>|null $state */
+    private function renderAutomation(?array $state): string
+    {
+        $enabled = (bool) Config::get('automation.enabled', true);
+        $intervalMinutes = max(1, (int) Config::get('automation.interval_minutes', 360));
+        $lastRun = $state['last_success_at'] ?? null;
+        $nextRun = $this->automationNextRunAt(is_string($lastRun) ? $lastRun : null, $intervalMinutes, $enabled);
+        $tokenConfigured = trim((string) Config::get('automation.token', '')) !== '';
+        $tickUrl = $this->automationTickUrl();
+        ob_start();
+        ?>
+            <section>
+                <div class="section-head">
+                    <h2>Automatizacion</h2>
+                    <form action="<?= $this->e($this->url('/automation/manual')) ?>" method="post">
+                        <button class="button" type="submit">Ejecutar ahora</button>
+                    </form>
+                </div>
+                <div class="section-body">
+                    <div class="details">
+                        <div class="detail">
+                            <span>Estado</span>
+                            <strong><span class="status <?= $enabled ? 'active' : 'inactive' ?>"><?= $enabled ? 'activa' : 'inactiva' ?></span></strong>
+                        </div>
+                        <div class="detail">
+                            <span>Intervalo</span>
+                            <strong><?= $this->e((string) $intervalMinutes) ?> min</strong>
+                        </div>
+                        <div class="detail">
+                            <span>Ultima corrida</span>
+                            <strong><?= $this->e(is_string($lastRun) && $lastRun !== '' ? $lastRun : '-') ?></strong>
+                        </div>
+                        <div class="detail">
+                            <span>Proxima corrida</span>
+                            <strong><?= $this->e($nextRun) ?></strong>
+                        </div>
+                        <div class="detail">
+                            <span>Cron HTTP</span>
+                            <strong><span class="status <?= $tokenConfigured ? 'configured' : 'missing_config' ?>"><?= $tokenConfigured ? 'configurado' : 'sin_token' ?></span></strong>
+                        </div>
+                    </div>
+
+                    <?php if (is_string($state['last_message'] ?? null) && $state['last_message'] !== ''): ?>
+                        <div class="field-hint">Ultimo resultado: <?= $this->e((string) $state['last_message']) ?></div>
+                    <?php endif; ?>
+
+                    <div class="field-hint">Configura un cron frecuente, por ejemplo cada 5 minutos. La ruta <code>/automation/tick</code> revisa el intervalo y solo ejecuta el flujo completo cuando ya toca.</div>
+
+                    <pre class="code-block"><code>*/5 * * * * curl -fsS -H "X-Automation-Token: &lt;AUTOMATION_TOKEN&gt;" <?= $this->e($tickUrl) ?></code></pre>
+                    <pre class="code-block"><code>*/5 * * * * php /ruta/al/proyecto/cron/automation.php</code></pre>
+
+                    <?php if (!$tokenConfigured): ?>
+                        <div class="notice">Configura AUTOMATION_TOKEN en Ajustes para usar el cron HTTP. Si usas cron CLI dentro del mismo servidor, el token HTTP no es necesario.</div>
                     <?php endif; ?>
                 </div>
             </section>
@@ -1049,63 +1117,53 @@ final class DashboardController
         ob_start();
         ?>
             <div class="worker-panel">
-                <h3>Marketplace Abgleich</h3>
+                <h3>JTL Worker 2.0</h3>
 
                 <div class="details">
                     <div class="detail">
-                        <span>Worker</span>
+                        <span>Estado API Worker</span>
                         <strong><?= $this->e($this->workerStatusLabel($workerStatus)) ?></strong>
                     </div>
                     <div class="detail">
-                        <span>Syncs disponibles</span>
+                        <span>Lectura desde API</span>
+                        <strong><?= (bool) Config::get('jtl.worker_discovery_enabled', false) ? 'activa' : 'manual' ?></strong>
+                    </div>
+                    <div class="detail">
+                        <span>Syncs leidos</span>
                         <strong><?= $this->e((string) count($workerSyncs)) ?></strong>
                     </div>
                     <div class="detail">
-                        <span>Sync ID default</span>
-                        <strong><?= $this->e(trim((string) Config::get('jtl.worker_sync_id', '')) !== '' ? (string) Config::get('jtl.worker_sync_id', '') : '-') ?></strong>
-                    </div>
-                    <div class="detail">
-                        <span>Endpoint</span>
-                        <strong><?= $this->e(Config::get('jtl.worker_sync_method', 'PUT') . ' ' . Config::get('jtl.worker_endpoint', '/api/eazybusiness/v1/workers/{id}')) ?></strong>
-                    </div>
-                    <div class="detail">
-                        <span>Worker client</span>
-                        <strong><?= $this->e(JtlClient::WORKER_CONTROL_CLIENT_VERSION) ?></strong>
+                        <span>Automatizacion app</span>
+                        <strong>/automation/tick</strong>
                     </div>
                 </div>
 
+                <div class="notice">El marketplace abgleich ya no se inicia desde esta app. JTL Worker 2.0 debe quedar corriendo en la PC/servidor de JTL; despues esta app lee las ordenes nuevas desde JTL, las envia a Packiyo y devuelve tracking a JTL con el cron.</div>
+
+                <ul class="worker-checklist">
+                    <li>En JTL-Wawi abre Admin -> JTL-Worker-Status.</li>
+                    <li>Activa el abgleich del marketplace/tienda, por ejemplo Temu EsSo, con intervalo minimo de 5 minutos.</li>
+                    <li>Presiona Starten y luego Speichern para que el Worker siga ejecutandose.</li>
+                    <li>Configura el cron de la app contra /automation/tick para procesar ordenes y fulfillment automaticamente.</li>
+                </ul>
+
                 <?php if ($error !== null): ?>
-                    <div class="empty">No se pudo leer el estado del worker: <?= $this->e($error) ?></div>
+                    <div class="empty">No se pudo leer el estado del worker por API: <?= $this->e($error) ?></div>
                     <?php if ($this->looksLikeForbiddenWorkerError($error)): ?>
                         <div class="notice">JTL respondio 403 para Worker. El API token actual probablemente no tiene los scopes <strong>worker.getworkersyncs</strong> y <strong>system.worker.read</strong>. Guarda ajustes y registra la app de nuevo en JTL-Wawi para generar un token nuevo.</div>
                     <?php endif; ?>
                 <?php endif; ?>
 
                 <?php if (!(bool) Config::get('jtl.worker_discovery_enabled', false)): ?>
-                    <div class="field-hint">La lectura automatica de Worker esta desactivada. Ingresa el UUID o ID numerico que espera tu JTL API. Si JTL responde 500 con el shop ID, la app prueba tambien los fallback IDs configurados; para marketplace suele ser 11.</div>
+                    <div class="field-hint">La lectura automatica de Worker esta desactivada. Esto esta bien si el Worker ya corre en JTL; usa el boton solo como diagnostico opcional.</div>
                 <?php endif; ?>
 
                 <div class="jtl-worker-actions">
                     <form class="inline-form" action="<?= $this->e($this->url('/jtl/workers/discover')) ?>" method="post">
-                        <button class="button secondary" type="submit">Leer GET /workers</button>
+                        <button class="button secondary" type="submit">Leer estado Worker</button>
                     </form>
+                    <a class="button secondary button-link" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Recargar ordenes JTL</a>
                 </div>
-
-                <form class="jtl-worker-form" action="<?= $this->e($this->url('/jtl/workers/start')) ?>" method="post">
-                    <select name="worker_sync_id">
-                        <option value="">Seleccionar abgleich</option>
-                        <?php foreach ($workerSyncs as $sync): ?>
-                            <?php $syncId = $this->workerSyncId($sync); ?>
-                            <?php if ($syncId === '') {
-                                continue;
-                            } ?>
-                            <option value="<?= $this->e($syncId) ?>"><?= $this->e($this->workerSyncLabel($sync)) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <input name="worker_sync_id_manual" placeholder="UUID o ID numerico manual" pattern="([0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})">
-                    <button class="button" type="submit">Iniciar abgleich</button>
-                    <a class="button secondary button-link" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Actualizar estado</a>
-                </form>
 
                 <?php if ($workerSyncs !== []): ?>
                     <div class="field-hint">Syncs raw: <?= $this->e($this->shortJson(['items' => $workerSyncs], 420)) ?></div>
@@ -2059,8 +2117,11 @@ final class DashboardController
                 <?php if ($key === 'JTL_BASE_URL'): ?>
                     <div class="field-hint">En hosting compartido, usa la URL publica del Cloudflare Tunnel, por ejemplo https://jtl-wawi.3plgermany.com.</div>
                 <?php endif; ?>
-                <?php if ($key === 'JTL_WORKER_SYNC_BODY_TEMPLATE'): ?>
-                    <div class="field-hint">Para esta JTL API usa {"Action":0}; el Sync ID va en el endpoint /api/eazybusiness/v1/workers/{id}. JTL define 0=Start, 1=Stop, 2=Restart.</div>
+                <?php if ($key === 'JTL_WORKER_DISCOVERY_ENABLED'): ?>
+                    <div class="field-hint">Solo activa esto para diagnostico. El marketplace abgleich debe ejecutarlo JTL Worker 2.0 en JTL-Wawi, no esta app.</div>
+                <?php endif; ?>
+                <?php if ($key === 'AUTOMATION_INTERVAL_MINUTES'): ?>
+                    <div class="field-hint">360 minutos son 6 horas. El cron puede llamar /automation/tick cada 5 minutos; la app decide si ya toca correr.</div>
                 <?php endif; ?>
             </div>
         <?php
@@ -2582,6 +2643,39 @@ final class DashboardController
         }
 
         return '-';
+    }
+
+    private function automationNextRunAt(?string $lastRun, int $intervalMinutes, bool $enabled): string
+    {
+        if (!$enabled) {
+            return '-';
+        }
+
+        if ($lastRun === null || trim($lastRun) === '') {
+            return 'proximo tick';
+        }
+
+        $timestamp = strtotime($lastRun);
+
+        if ($timestamp === false) {
+            return 'proximo tick';
+        }
+
+        return date('Y-m-d H:i:s', $timestamp + ($intervalMinutes * 60));
+    }
+
+    private function automationTickUrl(): string
+    {
+        $configured = trim((string) Config::get('app.base_url', ''));
+
+        if ($configured !== '') {
+            return rtrim($configured, '/') . $this->url('/automation/tick');
+        }
+
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = is_string($_SERVER['HTTP_HOST'] ?? null) ? $_SERVER['HTTP_HOST'] : 'localhost';
+
+        return $scheme . '://' . $host . $this->url('/automation/tick');
     }
 
     private function e(mixed $value): string

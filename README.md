@@ -143,11 +143,18 @@ JTL no guarda stock dentro de `POST /items`. La app crea/relaciona articulos y, 
 
 La automatizacion completa ejecuta:
 
-1. Lee ordenes nuevas de JTL.
+1. Lee ordenes nuevas que JTL Worker ya importo a JTL.
 2. Aplica los mapeos JTL -> Packiyo customer.
 3. Crea las ordenes en Packiyo.
 4. Lee fulfillments/tracking desde Packiyo.
 5. Agrega el tracking al delivery note de JTL para que el marketplace pueda recibirlo.
+
+El marketplace abgleich no se dispara desde esta app. Configuralo en JTL-Wawi con JTL Worker 2.0:
+
+1. Abre `Admin -> JTL-Worker-Status`.
+2. Activa el abgleich de la tienda/marketplace que corresponda, por ejemplo `Temu EsSo`.
+3. Usa un intervalo minimo de 5 minutos.
+4. Presiona `Starten` y luego `Speichern`, o dejalo instalado como servicio de Windows.
 
 Para usarla en un subdominio, el servidor donde corre esta app debe poder conectarse a `JTL_BASE_URL`.
 Si JTL-Wawi esta en una PC local, usa una VPN/tunel privado o instala esta app/agente en la misma red. No expongas `:5883` publicamente sin firewall y TLS controlado.
@@ -161,18 +168,20 @@ Cron CLI recomendado en el servidor:
 Alternativa para cron HTTP del hosting:
 
 ```bash
-curl -fsS -H "X-Automation-Token: $AUTOMATION_TOKEN" https://subdominio.tu-dominio.com/automation/run
+curl -fsS -H "X-Automation-Token: $AUTOMATION_TOKEN" https://subdominio.tu-dominio.com/automation/tick
 ```
 
 Variables:
 
 ```env
 AUTOMATION_TOKEN=<token-largo-random>
+AUTOMATION_ENABLED=true
+AUTOMATION_INTERVAL_MINUTES=360
 AUTOMATION_SYNC_CUSTOMERS=false
 AUTOMATION_FULFILLMENT_LIMIT=200
 ```
 
-El endpoint HTTP queda deshabilitado si `AUTOMATION_TOKEN` esta vacio.
+`/automation/tick` respeta `AUTOMATION_INTERVAL_MINUTES`: puedes ejecutar el cron cada 5 minutos y la app solo correra el flujo completo cuando toque. `/automation/run` fuerza una corrida inmediata con el mismo token. El endpoint HTTP queda deshabilitado si `AUTOMATION_TOKEN` esta vacio.
 
 El tracking hacia JTL requiere que la app registrada tenga scopes `deliverynotes.read` y `deliverynotes.write`, y que JTL ya tenga un `Lieferschein`/delivery note para la orden. Si no existe delivery note, la corrida registra el error y no puede marcar tracking.
 
@@ -200,7 +209,7 @@ No hay endpoint de registro abierto. El endpoint `/invite` solo funciona con un 
 
 Como fallback/bootstrap, puedes definir `AUTH_USERNAME` y `AUTH_PASSWORD_HASH` manualmente en `.env`, pero el uso normal debe ser invitaciones en MySQL.
 
-El endpoint `/automation/run` no usa la sesion del navegador; sigue protegido por `AUTOMATION_TOKEN` para que el cron del hosting pueda ejecutarlo.
+Los endpoints `/automation/tick` y `/automation/run` no usan la sesion del navegador; siguen protegidos por `AUTOMATION_TOKEN` para que el cron del hosting pueda ejecutarlos.
 
 Cron antiguo, solo ordenes JTL -> Packiyo:
 
@@ -214,7 +223,9 @@ Cron antiguo, solo ordenes JTL -> Packiyo:
 - `GET|POST /login` login del dashboard.
 - `GET|POST /logout` cierra sesion.
 - `GET|POST /invite` crea usuario usando un token de invitacion.
-- `GET|POST /automation/run` ejecuta el ciclo completo protegido por `AUTOMATION_TOKEN`.
+- `GET|POST /automation/tick` ejecuta el ciclo completo solo si ya paso el intervalo configurado.
+- `GET|POST /automation/run` fuerza el ciclo completo protegido por `AUTOMATION_TOKEN`.
+- `POST /automation/manual` fuerza el ciclo completo desde el dashboard protegido por login.
 - `POST /sync` ejecuta sincronizacion manual.
 - `POST /sync/order` sincroniza una sola orden JTL por ID interno o numero de orden.
 - `POST /jtl/register` inicia el registro de la app en JTL-Wawi.

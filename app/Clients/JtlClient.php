@@ -68,16 +68,16 @@ final class JtlClient
 
         foreach ($this->workerCanonicalStatusEndpoints() as $candidate) {
             foreach ($syncIds as $syncId) {
-                $options = $syncId !== '' ? ['query' => ['syncId' => $syncId]] : [];
+                foreach ($this->workerStatusQueryVariants($syncId) as $options) {
+                    foreach ($this->workerControlRequestVariants($options, $candidate) as $requestOptions) {
+                        try {
+                            return $this->http->get($candidate, $requestOptions);
+                        } catch (HttpException $exception) {
+                            $lastException = $exception;
 
-                foreach ($this->workerControlRequestVariants($options, $candidate) as $requestOptions) {
-                    try {
-                        return $this->http->get($candidate, $requestOptions);
-                    } catch (HttpException $exception) {
-                        $lastException = $exception;
-
-                        if (!$this->shouldTryWorkerEndpointFallback($exception)) {
-                            throw $exception;
+                            if (!$this->shouldTryWorkerEndpointFallback($exception)) {
+                                throw $exception;
+                            }
                         }
                     }
                 }
@@ -435,6 +435,27 @@ final class JtlClient
         $basePath = strtolower(trim((string) (parse_url((string) ($this->config['base_url'] ?? ''), PHP_URL_PATH) ?: ''), '/'));
 
         return str_ends_with($basePath, 'api/eazybusiness') ? '/v1' : '/api/eazybusiness/v1';
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function workerStatusQueryVariants(string $syncId): array
+    {
+        if ($syncId === '') {
+            return [[]];
+        }
+
+        return [
+            ['query' => ['syncId' => $syncId]],
+            ['query' => ['SyncId' => $syncId]],
+            ['query' => ['syncId.Reference' => $syncId]],
+            ['query' => ['SyncId.Reference' => $syncId]],
+            ['query' => ['syncId.Value' => $syncId]],
+            ['query' => ['SyncId.Value' => $syncId]],
+            ['query' => ['reference' => $syncId]],
+            ['query' => ['Reference' => $syncId]],
+        ];
     }
 
     /** @return array<int, string> */

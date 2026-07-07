@@ -28,7 +28,7 @@ if ($scriptDir !== '/' && str_starts_with($requestPath, $scriptDir)) {
 }
 
 $path = rtrim($requestPath, '/') ?: '/';
-$publicPaths = ['/login', '/logout', '/invite', '/automation/run'];
+$publicPaths = ['/login', '/logout', '/invite', '/automation/run', '/automation/tick'];
 $loginTarget = $path;
 $queryString = $_SERVER['QUERY_STRING'] ?? '';
 
@@ -49,6 +49,8 @@ try {
         '/logout' => (new AuthController())->logout(),
         '/invite' => (new UserInvitationController())->accept(),
         '/automation/run' => (new AutomationController())->run(),
+        '/automation/tick' => (new AutomationController())->tick(),
+        '/automation/manual' => (new AutomationController())->manual(),
         '/sync' => (new SyncController())->run(),
         '/sync/order' => (new SyncController())->runOne(),
         '/fulfillment/sync' => (new FulfillmentController())->sync(),

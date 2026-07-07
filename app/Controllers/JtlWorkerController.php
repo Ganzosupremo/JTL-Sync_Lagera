@@ -5,10 +5,8 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Clients\JtlClient;
-use App\Support\Config;
 use App\Support\Database;
 use App\Support\Logger;
-use RuntimeException;
 
 final class JtlWorkerController
 {
@@ -51,72 +49,10 @@ final class JtlWorkerController
             return;
         }
 
-        Database::migrate();
-
-        $syncId = $this->postedString('worker_sync_id');
-        $manualSyncId = $this->postedString('worker_sync_id_manual');
-        $syncName = $this->postedString('worker_sync_name');
-
-        if ($syncId === '' && $manualSyncId !== '') {
-            $syncId = $manualSyncId;
-        }
-
-        try {
-            $jtl = new JtlClient();
-            [$syncId, $syncName] = $this->resolveSync($jtl, $syncId, $syncName);
-            $syncId = $this->normalizeWorkerSyncId($syncId);
-            (new Logger())->info('jtl_worker', 'Worker control debug: ' . $this->shortJson($jtl->workerControlDebugInfo($syncId)));
-            $response = $jtl->startWorkerSync($syncId, $syncName);
-            $message = 'JTL Worker abgleich iniciado.';
-
-            if ($syncId !== '') {
-                $message .= ' Sync #' . $syncId . '.';
-            }
-
-            (new Logger())->info('jtl_worker', $message . ' Response: ' . $this->shortJson($response));
-        } catch (\Throwable $exception) {
-            $message = 'No se pudo iniciar el JTL Worker abgleich: ' . $this->friendlyError($exception->getMessage());
-            (new Logger())->error('jtl_worker', $message);
-        }
+        $message = 'Iniciar abgleich desde la app fue desactivado. Deja JTL Worker 2.0 corriendo en JTL-Wawi; la app solo lee ordenes ya importadas y ejecuta /automation/run para Packiyo y tracking.';
+        (new Logger())->warning('jtl_worker', $message);
 
         $this->redirectWithNotice($message);
-    }
-
-    /**
-     * @return array{0: string, 1: string}
-     */
-    private function resolveSync(JtlClient $jtl, string $syncId, string $syncName): array
-    {
-        if ($syncId !== '') {
-            return [$syncId, $syncName];
-        }
-
-        $configuredSyncId = trim((string) Config::get('jtl.worker_sync_id', ''));
-
-        if ($configuredSyncId !== '') {
-            return [$configuredSyncId, trim((string) Config::get('jtl.worker_sync_name', ''))];
-        }
-
-        if (!(bool) Config::get('jtl.worker_discovery_enabled', false)) {
-            throw new RuntimeException('Ingresa un Sync ID manual o guarda JTL_WORKER_SYNC_ID en Ajustes. Puede ser UUID o ID numerico, segun lo que espere tu JTL API.');
-        }
-
-        $syncs = $jtl->getWorkerSyncs();
-
-        if (count($syncs) === 1) {
-            $sync = $syncs[0];
-            $resolvedId = $this->workerSyncId($sync);
-
-            if ($resolvedId !== '') {
-                return [$resolvedId, $this->workerSyncName($sync)];
-            }
-        }
-
-        if ($syncs === []) {
-            throw new RuntimeException('JTL did not return worker syncs. Revisa scopes worker.getworkersyncs/system.worker.read o el endpoint /workers.');
-        }
-
-        throw new RuntimeException('Selecciona un sync ID manual. Disponibles: ' . $this->syncSummary($syncs));
     }
 
     /** @param array<int, array<string, mixed>> $syncs */
@@ -202,13 +138,6 @@ final class JtlWorkerController
         return null;
     }
 
-    private function postedString(string $key): string
-    {
-        $value = $_POST[$key] ?? '';
-
-        return is_scalar($value) ? trim((string) $value) : '';
-    }
-
     private function startSession(): void
     {
         if (PHP_SAPI === 'cli' || session_status() === PHP_SESSION_ACTIVE) {
@@ -252,34 +181,15 @@ final class JtlWorkerController
             || str_contains($message, 'Key must from Type int')
         ) {
             return $message
-                . ' Tip: esta JTL API espera un Sync ID numerico. Usa el kZiel/kShop de Worker.tTarget; para Temu EsSo vimos 2 en SQL.';
+                . ' Tip: la lectura Worker por API es solo diagnostico. Si JTL Worker 2.0 ya esta corriendo en JTL-Wawi, puedes dejar esta lectura desactivada.';
         }
 
         if (str_contains($message, 'HTTP 500') && str_contains($message, 'Unknown Internal Error')) {
             return $message
-                . ' Tip: JTL acepto la ruta y el tipo, pero fallo dentro del Worker. Revisa el Status raw en la UI y Worker.tStatus/Worker.tSetup en SQL; si el target esta Deactivated, hay que activarlo en JTL Worker/Plattformen antes de iniciarlo por API.';
+                . ' Tip: no uses la app para iniciar el marketplace abgleich. Dejalo configurado y corriendo desde JTL Worker 2.0.';
         }
 
         return $message;
-    }
-
-    private function normalizeWorkerSyncId(string $syncId): string
-    {
-        $syncId = trim($syncId, "{} \t\n\r\0\x0B");
-
-        if ($syncId === '') {
-            throw new RuntimeException('Ingresa el Identifier UUID del WorkerSyncItem.');
-        }
-
-        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $syncId)) {
-            if (preg_match('/^\d+$/', $syncId) === 1) {
-                return $syncId;
-            }
-
-            throw new RuntimeException('El Sync ID de Worker debe ser el Identifier UUID del WorkerSyncItem o el ID numerico que espera esta JTL API. Para Temu EsSo, segun tu SQL, prueba 2.');
-        }
-
-        return strtolower($syncId);
     }
 
     /** @param array<string, mixed> $data */

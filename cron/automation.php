@@ -9,7 +9,8 @@ require dirname(__DIR__) . '/app/bootstrap.php';
 
 Database::migrate();
 
-$summary = (new AutomationService())->run();
+$force = in_array('--force', $argv ?? [], true);
+$summary = (new AutomationService())->runIfDue($force);
 
 echo json_encode($summary, JSON_THROW_ON_ERROR) . PHP_EOL;
 
