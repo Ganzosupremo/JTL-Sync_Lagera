@@ -22,7 +22,7 @@ final class OrderSyncService
     ) {
     }
 
-    /** @return array{total: int, created: int, linked: int, skipped: int, failed: int} */
+    /** @return array{total: int, created: int, linked: int, skipped: int, failed: int, already_synced: int, unmapped: int} */
     public function sync(?string $customerFilter = null, ?string $mappedCustomerFilter = null): array
     {
         $summary = [
@@ -31,6 +31,8 @@ final class OrderSyncService
             'linked' => 0,
             'skipped' => 0,
             'failed' => 0,
+            'already_synced' => 0,
+            'unmapped' => 0,
         ];
 
         $this->log()->info('order_sync', 'Order sync started.');
@@ -47,6 +49,14 @@ final class OrderSyncService
         $summary['total'] = count($orders);
 
         foreach ($orders as $order) {
+            $skipReason = $this->preSyncSkipReason($order);
+
+            if ($skipReason !== null) {
+                $summary['skipped']++;
+                $summary[$skipReason]++;
+                continue;
+            }
+
             try {
                 $result = $this->syncOrder($order);
                 $summary[$result]++;
@@ -64,12 +74,14 @@ final class OrderSyncService
         $this->log()->info(
             'order_sync',
             sprintf(
-                'Order sync finished. total=%d created=%d linked=%d skipped=%d failed=%d',
+                'Order sync finished. total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d',
                 $summary['total'],
                 $summary['created'],
                 $summary['linked'],
                 $summary['skipped'],
-                $summary['failed']
+                $summary['failed'],
+                $summary['already_synced'],
+                $summary['unmapped']
             )
         );
 
@@ -117,6 +129,34 @@ final class OrderSyncService
                     && (string) ($mapping['packiyo_customer_id'] ?? '') === $mappedCustomerFilter;
             }
         ));
+    }
+
+    /**
+     * @param array<string, mixed> $order
+     * @return 'already_synced'|'unmapped'|null
+     */
+    private function preSyncSkipReason(array $order): ?string
+    {
+        $jtlOrderId = $this->mapper()->jtlOrderId($order);
+
+        if ($jtlOrderId !== null && $this->mapper()->hasJtlOrder($jtlOrderId)) {
+            return 'already_synced';
+        }
+
+        if (!$this->hasMappedPackiyoCustomer($order)) {
+            return 'unmapped';
+        }
+
+        return null;
+    }
+
+    /** @param array<string, mixed> $order */
+    private function hasMappedPackiyoCustomer(array $order): bool
+    {
+        $resolver = new PackiyoCustomerResolver();
+        $mapping = (new PackiyoCustomerMapping())->findForCandidates($resolver->candidates($order));
+
+        return $mapping !== null && trim((string) ($mapping['packiyo_customer_id'] ?? '')) !== '';
     }
 
     /** @return array{total: int, created: int, linked: int, skipped: int, failed: int, message: string} */
