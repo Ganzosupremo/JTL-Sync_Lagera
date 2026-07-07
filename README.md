@@ -149,6 +149,8 @@ La automatizacion completa ejecuta:
 4. Lee fulfillments/tracking desde Packiyo.
 5. Agrega el tracking al delivery note de JTL para que el marketplace pueda recibirlo.
 
+Si una orden ya existe en Packiyo pero aun no existe en `order_mappings`, la app la busca por `external_id`/numero de orden, crea el mapeo local y la deja lista para el paso de fulfillment/tracking en vez de fallar por duplicado.
+
 El marketplace abgleich no se dispara desde esta app. Configuralo en JTL-Wawi con JTL Worker 2.0:
 
 1. Abre `Admin -> JTL-Worker-Status`.

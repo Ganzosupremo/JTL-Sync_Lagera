@@ -118,7 +118,9 @@ final class AutomationService
         $summary['failed'] = $this->failureCount($summary);
         $summary['finished_at'] = date('Y-m-d H:i:s');
         $summary['message'] = sprintf(
-            'Automation finished. order_failed=%d fulfillment_failed=%d.',
+            'Automation finished. order_created=%d order_linked=%d order_failed=%d fulfillment_failed=%d.',
+            (int) ($summary['orders']['created'] ?? 0),
+            (int) ($summary['orders']['linked'] ?? 0),
             (int) ($summary['orders']['failed'] ?? 0),
             (int) ($summary['fulfillment']['failed'] ?? 0)
         );

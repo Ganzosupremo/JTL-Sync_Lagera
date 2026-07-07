@@ -21,12 +21,13 @@ final class OrderSyncService
     ) {
     }
 
-    /** @return array{total: int, created: int, skipped: int, failed: int} */
+    /** @return array{total: int, created: int, linked: int, skipped: int, failed: int} */
     public function sync(): array
     {
         $summary = [
             'total' => 0,
             'created' => 0,
+            'linked' => 0,
             'skipped' => 0,
             'failed' => 0,
         ];
@@ -45,8 +46,8 @@ final class OrderSyncService
 
         foreach ($orders as $order) {
             try {
-                $this->syncOrder($order);
-                $summary['created']++;
+                $result = $this->syncOrder($order);
+                $summary[$result]++;
             } catch (OrderAlreadySyncedException) {
                 $summary['skipped']++;
             } catch (InactivePackiyoCustomerException $exception) {
@@ -61,9 +62,10 @@ final class OrderSyncService
         $this->log()->info(
             'order_sync',
             sprintf(
-                'Order sync finished. total=%d created=%d skipped=%d failed=%d',
+                'Order sync finished. total=%d created=%d linked=%d skipped=%d failed=%d',
                 $summary['total'],
                 $summary['created'],
+                $summary['linked'],
                 $summary['skipped'],
                 $summary['failed']
             )
@@ -72,13 +74,14 @@ final class OrderSyncService
         return $summary;
     }
 
-    /** @return array{total: int, created: int, skipped: int, failed: int, message: string} */
+    /** @return array{total: int, created: int, linked: int, skipped: int, failed: int, message: string} */
     public function syncOne(string $reference, bool $force = false, bool $resendArchived = false): array
     {
         $reference = trim($reference);
         $summary = [
             'total' => 1,
             'created' => 0,
+            'linked' => 0,
             'skipped' => 0,
             'failed' => 0,
             'message' => '',
@@ -94,9 +97,11 @@ final class OrderSyncService
 
         try {
             $order = $this->findOrder($reference);
-            $this->syncOrder($order, $force, $resendArchived);
-            $summary['created'] = 1;
-            $summary['message'] = 'Orden JTL ' . $this->orderLabel($order) . ' enviada a Packiyo.';
+            $result = $this->syncOrder($order, $force, $resendArchived);
+            $summary[$result] = 1;
+            $summary['message'] = $result === 'linked'
+                ? 'Orden JTL ' . $this->orderLabel($order) . ' ya existia en Packiyo y quedo marcada como enviada.'
+                : 'Orden JTL ' . $this->orderLabel($order) . ' enviada a Packiyo.';
         } catch (OrderAlreadySyncedException) {
             $summary['skipped'] = 1;
             $summary['message'] = 'Orden JTL ' . $reference . ' ya estaba sincronizada.';
@@ -114,7 +119,7 @@ final class OrderSyncService
     }
 
     /** @param array<string, mixed> $order */
-    private function syncOrder(array $order, bool $force = false, bool $resendArchived = false): void
+    private function syncOrder(array $order, bool $force = false, bool $resendArchived = false): string
     {
         $jtlOrderId = $this->mapper()->jtlOrderId($order);
 
@@ -163,7 +168,27 @@ final class OrderSyncService
             $numberOverride,
             $lineItemExternalIdSuffix
         );
-        $packiyoOrder = $this->packiyoClient()->createOrder($payload);
+        $packiyoOrder = $resendArchived ? null : $this->findExistingPackiyoOrder($payload, $order);
+        $linkedExistingOrder = $packiyoOrder !== null;
+
+        if ($packiyoOrder === null) {
+            try {
+                $packiyoOrder = $this->packiyoClient()->createOrder($payload);
+            } catch (HttpException $exception) {
+                if (!$this->looksLikeExistingPackiyoOrderError($exception)) {
+                    throw $exception;
+                }
+
+                $packiyoOrder = $this->findExistingPackiyoOrder($payload, $order);
+
+                if ($packiyoOrder === null) {
+                    throw $exception;
+                }
+
+                $linkedExistingOrder = true;
+            }
+        }
+
         $packiyoOrderId = $this->mapper()->packiyoOrderId($packiyoOrder);
 
         if ($packiyoOrderId === null) {
@@ -185,7 +210,14 @@ final class OrderSyncService
             'synced_at' => date('Y-m-d H:i:s'),
         ]);
 
+        if ($linkedExistingOrder) {
+            $this->log()->info('order_sync', 'Linked existing Packiyo order ' . $packiyoOrderId . ' to JTL order ' . $jtlOrderId . '.');
+            return 'linked';
+        }
+
         $this->log()->info('order_sync', 'Synced JTL order ' . $jtlOrderId . ' to Packiyo order ' . $packiyoOrderId . '.');
+
+        return 'created';
     }
 
     /** @return array<string, mixed> */
@@ -232,6 +264,135 @@ final class OrderSyncService
         return $this->mapper()->jtlOrderNumber($order)
             ?? $this->mapper()->jtlOrderId($order)
             ?? 'desconocida';
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $order
+     * @return array<string, mixed>|null
+     */
+    private function findExistingPackiyoOrder(array $payload, array $order): ?array
+    {
+        foreach ($this->packiyoOrderLookupCandidates($payload, $order) as $candidate) {
+            try {
+                $response = $candidate['type'] === 'number'
+                    ? $this->packiyoClient()->findOrderByNumber($candidate['value'])
+                    : $this->packiyoClient()->findOrder($candidate['value']);
+                $found = $this->firstPackiyoOrder($response);
+
+                if ($found !== null) {
+                    $this->log()->info(
+                        'order_sync',
+                        'Found existing Packiyo order by ' . $candidate['type'] . ' ' . $candidate['value'] . '.'
+                    );
+
+                    return $found;
+                }
+            } catch (HttpException $exception) {
+                if (in_array($exception->statusCode(), [400, 404], true)) {
+                    continue;
+                }
+
+                $this->log()->warning(
+                    'order_sync',
+                    'Unable to lookup existing Packiyo order by ' . $candidate['type'] . ' '
+                    . $candidate['value'] . ': ' . $exception->getMessage()
+                );
+            } catch (Throwable $exception) {
+                $this->log()->warning(
+                    'order_sync',
+                    'Unable to lookup existing Packiyo order by ' . $candidate['type'] . ' '
+                    . $candidate['value'] . ': ' . $exception->getMessage()
+                );
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $order
+     * @return array<int, array{type: string, value: string}>
+     */
+    private function packiyoOrderLookupCandidates(array $payload, array $order): array
+    {
+        $attributes = $payload['data']['attributes'] ?? [];
+        $attributes = is_array($attributes) ? $attributes : [];
+        $candidateGroups = [
+            'external_id' => [
+                $attributes['external_id'] ?? null,
+                $this->mapper()->marketplaceOrderNumber($order),
+                $this->mapper()->jtlOrderId($order),
+                $this->mapper()->jtlOrderNumber($order),
+            ],
+            'number' => [
+                $attributes['number'] ?? null,
+                $this->mapper()->marketplaceOrderNumber($order),
+                $this->mapper()->jtlOrderNumber($order),
+                $this->mapper()->jtlOrderId($order),
+            ],
+        ];
+        $seen = [];
+        $candidates = [];
+
+        foreach ($candidateGroups as $type => $values) {
+            foreach ($values as $value) {
+                if (!is_scalar($value)) {
+                    continue;
+                }
+
+                $value = trim((string) $value);
+                $key = $type . ':' . strtolower($value);
+
+                if ($value === '' || isset($seen[$key])) {
+                    continue;
+                }
+
+                $seen[$key] = true;
+                $candidates[] = [
+                    'type' => $type,
+                    'value' => $value,
+                ];
+            }
+        }
+
+        return $candidates;
+    }
+
+    private function looksLikeExistingPackiyoOrderError(HttpException $exception): bool
+    {
+        if (in_array($exception->statusCode(), [409, 422], true)) {
+            return true;
+        }
+
+        if ($exception->statusCode() !== 500) {
+            return false;
+        }
+
+        return preg_match('/already|duplicate|exists|unique|taken|external_id|number/i', $exception->getMessage()) === 1;
+    }
+
+    /** @param array<string, mixed> $response */
+    private function firstPackiyoOrder(array $response): ?array
+    {
+        $data = $response['data'] ?? $response['Data'] ?? null;
+
+        if (!is_array($data) || $data === []) {
+            return null;
+        }
+
+        if (array_is_list($data)) {
+            foreach ($data as $item) {
+                if (is_array($item)) {
+                    return $item;
+                }
+            }
+
+            return null;
+        }
+
+        return $data;
     }
 
     /** @param array<string, mixed> $response */

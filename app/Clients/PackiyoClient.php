@@ -44,6 +44,13 @@ final class PackiyoClient
         ]);
     }
 
+    public function findOrderByNumber(string $number): array
+    {
+        return $this->http->get((string) $this->config['find_order_endpoint'], [
+            'query' => ['filter[number]' => $number],
+        ]);
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function listProductsForCustomer(string $customerId, int $maxPages = 10): array
     {
