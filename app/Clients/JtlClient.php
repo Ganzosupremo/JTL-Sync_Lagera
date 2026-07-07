@@ -307,6 +307,28 @@ final class JtlClient
         }
     }
 
+    public function isReachabilityException(Throwable $exception): bool
+    {
+        if ($exception instanceof HttpException) {
+            return in_array($exception->statusCode(), [408, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526], true);
+        }
+
+        return preg_match(
+            '/timed out|failed to connect|could not connect|could not resolve host|connection refused|no route to host|network is unreachable|connection reset|http request failed|ssl.*(connect|timeout)/i',
+            $exception->getMessage()
+        ) === 1;
+    }
+
+    public function friendlyReachabilityMessage(Throwable $exception): string
+    {
+        $baseUrl = trim((string) ($this->config['base_url'] ?? ''));
+        $target = $baseUrl !== '' ? ' en ' . $baseUrl : '';
+
+        return 'JTL API no esta reachable' . $target
+            . '. Revisa que la PC de JTL este encendida, que el servicio/API de JTL y cloudflared esten corriendo, '
+            . 'y que el tunnel de Cloudflare aparezca conectado. Detalle: ' . $exception->getMessage();
+    }
+
     public function isConfigured(): bool
     {
         $baseUrl = (string) ($this->config['base_url'] ?? '');

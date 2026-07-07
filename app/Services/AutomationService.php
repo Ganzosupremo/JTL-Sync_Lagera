@@ -107,10 +107,22 @@ final class AutomationService
             }
 
             $summary['orders'] = $this->runStep('orders', fn (): array => $this->orderService()->sync());
-            $summary['fulfillment'] = $this->runStep(
-                'fulfillment',
-                fn (): array => $this->fulfillmentService()->sync((int) Config::get('automation.fulfillment_limit', 200))
-            );
+            if ((bool) ($summary['orders']['jtl_unreachable'] ?? false)) {
+                $summary['fulfillment'] = [
+                    'checked' => 0,
+                    'fulfilled' => 0,
+                    'synced' => 0,
+                    'skipped' => 0,
+                    'failed' => 0,
+                    'message' => 'Fulfillment sync omitido porque JTL no esta reachable.',
+                ];
+                $this->log()->warning('automation', $summary['fulfillment']['message']);
+            } else {
+                $summary['fulfillment'] = $this->runStep(
+                    'fulfillment',
+                    fn (): array => $this->fulfillmentService()->sync((int) Config::get('automation.fulfillment_limit', 200))
+                );
+            }
         } finally {
             $this->releaseLock($lock);
         }
@@ -118,12 +130,13 @@ final class AutomationService
         $summary['failed'] = $this->failureCount($summary);
         $summary['finished_at'] = date('Y-m-d H:i:s');
         $summary['message'] = sprintf(
-            'Automation finished. order_created=%d order_linked=%d order_skipped=%d already_synced=%d unmapped=%d order_failed=%d fulfillment_failed=%d.',
+            'Automation finished. order_created=%d order_linked=%d order_skipped=%d already_synced=%d unmapped=%d jtl_unreachable=%d order_failed=%d fulfillment_failed=%d.',
             (int) ($summary['orders']['created'] ?? 0),
             (int) ($summary['orders']['linked'] ?? 0),
             (int) ($summary['orders']['skipped'] ?? 0),
             (int) ($summary['orders']['already_synced'] ?? 0),
             (int) ($summary['orders']['unmapped'] ?? 0),
+            (bool) ($summary['orders']['jtl_unreachable'] ?? false) ? 1 : 0,
             (int) ($summary['orders']['failed'] ?? 0),
             (int) ($summary['fulfillment']['failed'] ?? 0)
         );

@@ -32,13 +32,17 @@ final class SyncController
             return;
         }
 
-        $message = sprintf(
-            'Sync terminado: %d creados, %d ya existentes vinculados, %d omitidos, %d errores.',
-            $summary['created'],
-            $summary['linked'] ?? 0,
-            $summary['skipped'],
-            $summary['failed']
-        );
+        $message = (bool) ($summary['jtl_unreachable'] ?? false)
+            && is_string($summary['message'] ?? null)
+            && $summary['message'] !== ''
+            ? $summary['message']
+            : sprintf(
+                'Sync terminado: %d creados, %d ya existentes vinculados, %d omitidos, %d errores.',
+                $summary['created'],
+                $summary['linked'] ?? 0,
+                $summary['skipped'],
+                $summary['failed']
+            );
 
         $params = [
             'tab' => $returnTab,

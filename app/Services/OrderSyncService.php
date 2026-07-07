@@ -22,7 +22,7 @@ final class OrderSyncService
     ) {
     }
 
-    /** @return array{total: int, created: int, linked: int, skipped: int, failed: int, already_synced: int, unmapped: int} */
+    /** @return array{total: int, created: int, linked: int, skipped: int, failed: int, already_synced: int, unmapped: int, jtl_unreachable: bool, message: string} */
     public function sync(?string $customerFilter = null, ?string $mappedCustomerFilter = null): array
     {
         $summary = [
@@ -33,15 +33,22 @@ final class OrderSyncService
             'failed' => 0,
             'already_synced' => 0,
             'unmapped' => 0,
+            'jtl_unreachable' => false,
+            'message' => '',
         ];
 
         $this->log()->info('order_sync', 'Order sync started.');
+        $jtl = $this->jtlClient();
 
         try {
-            $orders = $this->jtlClient()->getOrders();
+            $orders = $jtl->getOrders();
         } catch (Throwable $exception) {
             $summary['failed']++;
-            $this->log()->error('jtl', 'Unable to read JTL orders: ' . $exception->getMessage());
+            $summary['jtl_unreachable'] = $jtl->isReachabilityException($exception);
+            $summary['message'] = $summary['jtl_unreachable']
+                ? $jtl->friendlyReachabilityMessage($exception)
+                : 'Unable to read JTL orders: ' . $exception->getMessage();
+            $this->log()->error('jtl', $summary['message']);
             return $summary;
         }
 
@@ -73,7 +80,7 @@ final class OrderSyncService
 
         $this->log()->info(
             'order_sync',
-            sprintf(
+            $summary['message'] = sprintf(
                 'Order sync finished. total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d',
                 $summary['total'],
                 $summary['created'],

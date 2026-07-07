@@ -39,6 +39,7 @@ final class FulfillmentSyncService
         ];
 
         $this->log()->info('fulfillment_sync', 'Fulfillment sync started.');
+        $jtlUnavailableMessage = null;
 
         foreach ($this->orderModel()->all($limit) as $mapping) {
             $summary['checked']++;
@@ -59,9 +60,27 @@ final class FulfillmentSyncService
                         continue;
                     }
 
-                    $this->sendShipmentToJtl($mapping, $shipment);
+                    try {
+                        $this->sendShipmentToJtl($mapping, $shipment);
+                    } catch (Throwable $exception) {
+                        if ($this->jtlClient()->isReachabilityException($exception)) {
+                            throw new JtlUnavailableDuringFulfillmentException(
+                                $this->jtlClient()->friendlyReachabilityMessage($exception),
+                                0,
+                                $exception
+                            );
+                        }
+
+                        throw $exception;
+                    }
+
                     $summary['synced']++;
                 }
+            } catch (JtlUnavailableDuringFulfillmentException $exception) {
+                $summary['failed']++;
+                $jtlUnavailableMessage = $exception->getMessage();
+                $this->log()->error('fulfillment_sync', 'Fulfillment sync stopped: ' . $jtlUnavailableMessage);
+                break;
             } catch (Throwable $exception) {
                 $summary['failed']++;
                 $this->log()->error(
@@ -73,14 +92,15 @@ final class FulfillmentSyncService
             }
         }
 
-        $summary['message'] = sprintf(
-            'Fulfillment sync terminado: %d revisadas, %d con tracking, %d enviadas a JTL, %d omitidas, %d errores.',
-            $summary['checked'],
-            $summary['fulfilled'],
-            $summary['synced'],
-            $summary['skipped'],
-            $summary['failed']
-        );
+        $summary['message'] = ($jtlUnavailableMessage !== null ? 'Fulfillment sync detenido: ' . $jtlUnavailableMessage . ' ' : '')
+            . sprintf(
+                'Fulfillment sync terminado: %d revisadas, %d con tracking, %d enviadas a JTL, %d omitidas, %d errores.',
+                $summary['checked'],
+                $summary['fulfilled'],
+                $summary['synced'],
+                $summary['skipped'],
+                $summary['failed']
+            );
 
         $this->stateModel()->markSuccess('fulfillment_sync', date('Y-m-d H:i:s'), $summary['message']);
         $this->log()->info('fulfillment_sync', $summary['message']);
@@ -554,4 +574,8 @@ final class FulfillmentSyncService
     {
         return $this->logger ?? new Logger();
     }
+}
+
+final class JtlUnavailableDuringFulfillmentException extends RuntimeException
+{
 }
