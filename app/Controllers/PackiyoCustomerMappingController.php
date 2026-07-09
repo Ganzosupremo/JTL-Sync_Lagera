@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Models\AutomationOrderSkip;
 use App\Models\PackiyoCustomerMapping;
 use App\Support\Database;
 use Throwable;
@@ -35,6 +36,8 @@ final class PackiyoCustomerMappingController
                 'priority' => $_POST['priority'] ?? 100,
                 'active' => true,
             ]);
+
+            (new AutomationOrderSkip())->deleteByReason('unmapped');
 
             $this->redirect('Mapeo de cliente Packiyo guardado.');
         } catch (Throwable $exception) {

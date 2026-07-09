@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Clients\JtlClient;
 use App\Clients\PackiyoClient;
+use App\Models\AutomationOrderSkip;
 use App\Models\PackiyoCustomerMapping;
 use App\Support\HttpException;
 use App\Support\Logger;
@@ -18,21 +19,24 @@ final class OrderSyncService
         private readonly ?JtlClient $jtl = null,
         private readonly ?PackiyoClient $packiyo = null,
         private readonly ?MappingService $mapping = null,
+        private readonly ?AutomationOrderSkip $automationSkips = null,
         private readonly ?Logger $logger = null
     ) {
     }
 
-    /** @return array{total: int, created: int, linked: int, skipped: int, failed: int, already_synced: int, unmapped: int, jtl_unreachable: bool, message: string} */
-    public function sync(?string $customerFilter = null, ?string $mappedCustomerFilter = null): array
+    /** @return array{total: int, jtl_returned: int, created: int, linked: int, skipped: int, failed: int, already_synced: int, unmapped: int, previously_ignored: int, jtl_unreachable: bool, message: string} */
+    public function sync(?string $customerFilter = null, ?string $mappedCustomerFilter = null, bool $useAutomationSkipCache = false): array
     {
         $summary = [
             'total' => 0,
+            'jtl_returned' => 0,
             'created' => 0,
             'linked' => 0,
             'skipped' => 0,
             'failed' => 0,
             'already_synced' => 0,
             'unmapped' => 0,
+            'previously_ignored' => 0,
             'jtl_unreachable' => false,
             'message' => '',
         ];
@@ -53,6 +57,12 @@ final class OrderSyncService
         }
 
         $orders = $this->filterOrders($orders, $customerFilter, $mappedCustomerFilter);
+        $summary['jtl_returned'] = count($orders);
+
+        if ($useAutomationSkipCache) {
+            $orders = $this->filterPreviouslyIgnoredAutomationOrders($orders, $summary);
+        }
+
         $summary['total'] = count($orders);
 
         foreach ($orders as $order) {
@@ -61,14 +71,28 @@ final class OrderSyncService
             if ($skipReason !== null) {
                 $summary['skipped']++;
                 $summary[$skipReason]++;
+
+                if ($useAutomationSkipCache) {
+                    $this->rememberAutomationSkip($order, $skipReason);
+                }
+
                 continue;
             }
 
             try {
                 $result = $this->syncOrder($order);
                 $summary[$result]++;
+
+                if ($useAutomationSkipCache && in_array($result, ['created', 'linked'], true)) {
+                    $this->rememberAutomationSkip($order, 'already_synced');
+                }
             } catch (OrderAlreadySyncedException) {
                 $summary['skipped']++;
+                $summary['already_synced']++;
+
+                if ($useAutomationSkipCache) {
+                    $this->rememberAutomationSkip($order, 'already_synced');
+                }
             } catch (InactivePackiyoCustomerException $exception) {
                 $summary['skipped']++;
                 $this->log()->info('order_sync', $exception->getMessage());
@@ -81,14 +105,16 @@ final class OrderSyncService
         $this->log()->info(
             'order_sync',
             $summary['message'] = sprintf(
-                'Order sync finished. total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d',
+                'Order sync finished. jtl_returned=%d total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d previously_ignored=%d',
+                $summary['jtl_returned'],
                 $summary['total'],
                 $summary['created'],
                 $summary['linked'],
                 $summary['skipped'],
                 $summary['failed'],
                 $summary['already_synced'],
-                $summary['unmapped']
+                $summary['unmapped'],
+                $summary['previously_ignored']
             )
         );
 
@@ -139,6 +165,42 @@ final class OrderSyncService
     }
 
     /**
+     * @param array<int, array<string, mixed>> $orders
+     * @param array<string, mixed> $summary
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterPreviouslyIgnoredAutomationOrders(array $orders, array &$summary): array
+    {
+        $ids = [];
+
+        foreach ($orders as $order) {
+            $jtlOrderId = $this->mapper()->jtlOrderId($order);
+
+            if ($jtlOrderId !== null) {
+                $ids[] = $jtlOrderId;
+            }
+        }
+
+        $ignored = $this->automationSkipModel()->findReasonsForOrderIds($ids);
+
+        if ($ignored === []) {
+            return $orders;
+        }
+
+        return array_values(array_filter($orders, function (array $order) use ($ignored, &$summary): bool {
+            $jtlOrderId = $this->mapper()->jtlOrderId($order);
+
+            if ($jtlOrderId === null || !isset($ignored[$jtlOrderId])) {
+                return true;
+            }
+
+            $summary['previously_ignored']++;
+
+            return false;
+        }));
+    }
+
+    /**
      * @param array<string, mixed> $order
      * @return 'already_synced'|'unmapped'|null
      */
@@ -164,6 +226,18 @@ final class OrderSyncService
         $mapping = (new PackiyoCustomerMapping())->findForCandidates($resolver->candidates($order));
 
         return $mapping !== null && trim((string) ($mapping['packiyo_customer_id'] ?? '')) !== '';
+    }
+
+    /** @param array<string, mixed> $order */
+    private function rememberAutomationSkip(array $order, string $reason): void
+    {
+        $jtlOrderId = $this->mapper()->jtlOrderId($order);
+
+        if ($jtlOrderId === null) {
+            return;
+        }
+
+        $this->automationSkipModel()->remember($jtlOrderId, $this->mapper()->jtlOrderNumber($order), $reason);
     }
 
     /** @return array{total: int, created: int, linked: int, skipped: int, failed: int, message: string} */
@@ -658,6 +732,11 @@ final class OrderSyncService
     private function mapper(): MappingService
     {
         return $this->mapping ?? new MappingService();
+    }
+
+    private function automationSkipModel(): AutomationOrderSkip
+    {
+        return $this->automationSkips ?? new AutomationOrderSkip();
     }
 
     private function log(): Logger

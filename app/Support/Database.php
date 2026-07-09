@@ -46,6 +46,23 @@ final class Database
         );
 
         $db->query(
+            "CREATE TABLE IF NOT EXISTS automation_order_skips (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                jtl_order_id VARCHAR(100) NOT NULL,
+                jtl_order_number VARCHAR(100) NULL,
+                reason VARCHAR(30) NOT NULL,
+                first_seen_at DATETIME NOT NULL,
+                last_seen_at DATETIME NOT NULL,
+                skip_count INT NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                UNIQUE KEY automation_order_skips_jtl_order_unique (jtl_order_id),
+                KEY automation_order_skips_reason_index (reason),
+                KEY automation_order_skips_last_seen_index (last_seen_at)
+            )"
+        );
+
+        $db->query(
             "CREATE TABLE IF NOT EXISTS sync_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 created_at DATETIME NOT NULL,
