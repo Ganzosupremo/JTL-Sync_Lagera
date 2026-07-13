@@ -70,7 +70,7 @@ final class PackiyoCustomerResolver
         $sourceCandidates = $this->sourceCandidatesByType($order);
 
         return [
-            'marketplace' => $this->uniqueStrings(array_merge([
+            'marketplace' => $this->marketplaceStrings(array_merge([
                 $this->firstValue($order, ['marketplace', 'Marketplace', 'marketplaceName', 'MarketplaceName', 'platform', 'Platform']),
                 $this->firstValue($marketplace, ['name', 'Name', 'displayName', 'DisplayName', 'title', 'Title', 'id', 'Id']),
             ], $sourceCandidates['marketplace'] ?? [])),
@@ -161,6 +161,39 @@ final class PackiyoCustomerResolver
         }
 
         return array_values(array_unique($strings));
+    }
+
+    /** @param array<int, mixed> $values */
+    private function marketplaceStrings(array $values): array
+    {
+        $expanded = [];
+
+        foreach ($values as $value) {
+            if (!is_scalar($value) || trim((string) $value) === '') {
+                continue;
+            }
+
+            $value = trim((string) $value);
+            $expanded[] = $value;
+
+            foreach ($this->marketplaceAliases($value) as $alias) {
+                $expanded[] = $alias;
+            }
+        }
+
+        return $this->uniqueStrings($expanded);
+    }
+
+    /** @return array<int, string> */
+    private function marketplaceAliases(string $value): array
+    {
+        $normalized = $this->normalizeToken($value);
+
+        if (in_array($normalized, ['bol', 'bolcom', 'bolnl', 'bolbe'], true)) {
+            return ['bol', 'BOL', 'bol.com', 'BOL.com'];
+        }
+
+        return [];
     }
 
     private function mappingModel(): PackiyoCustomerMapping
