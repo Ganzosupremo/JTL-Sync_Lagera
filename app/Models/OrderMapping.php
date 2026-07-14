@@ -50,17 +50,30 @@ final class OrderMapping
                 jtl_order_number,
                 packiyo_order_id,
                 packiyo_order_number,
+                packiyo_customer_id,
+                packiyo_customer_name,
                 synced_at
-            ) VALUES (?, ?, ?, ?, ?)'
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
 
         $jtlOrderId = (string) $data['jtl_order_id'];
         $jtlOrderNumber = isset($data['jtl_order_number']) ? (string) $data['jtl_order_number'] : null;
         $packiyoOrderId = (string) $data['packiyo_order_id'];
         $packiyoOrderNumber = isset($data['packiyo_order_number']) ? (string) $data['packiyo_order_number'] : null;
+        $packiyoCustomerId = isset($data['packiyo_customer_id']) ? (string) $data['packiyo_customer_id'] : null;
+        $packiyoCustomerName = isset($data['packiyo_customer_name']) ? (string) $data['packiyo_customer_name'] : null;
         $syncedAt = (string) ($data['synced_at'] ?? date('Y-m-d H:i:s'));
 
-        $statement->bind_param('sssss', $jtlOrderId, $jtlOrderNumber, $packiyoOrderId, $packiyoOrderNumber, $syncedAt);
+        $statement->bind_param(
+            'sssssss',
+            $jtlOrderId,
+            $jtlOrderNumber,
+            $packiyoOrderId,
+            $packiyoOrderNumber,
+            $packiyoCustomerId,
+            $packiyoCustomerName,
+            $syncedAt
+        );
         $statement->execute();
 
         return (int) $this->connection()->insert_id;
@@ -77,8 +90,23 @@ final class OrderMapping
     }
 
     /** @return array<int, array<string, mixed>> */
-    public function all(int $limit = 500): array
+    public function all(int $limit = 500, ?string $packiyoCustomerId = null): array
     {
+        $packiyoCustomerId = trim((string) $packiyoCustomerId);
+
+        if ($packiyoCustomerId !== '') {
+            $statement = $this->connection()->prepare(
+                'SELECT * FROM order_mappings
+                WHERE packiyo_customer_id = ?
+                ORDER BY synced_at ASC, id ASC
+                LIMIT ?'
+            );
+            $statement->bind_param('si', $packiyoCustomerId, $limit);
+            $statement->execute();
+
+            return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
+        }
+
         $statement = $this->connection()->prepare('SELECT * FROM order_mappings ORDER BY synced_at ASC, id ASC LIMIT ?');
         $statement->bind_param('i', $limit);
         $statement->execute();

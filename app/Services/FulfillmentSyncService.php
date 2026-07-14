@@ -26,22 +26,28 @@ final class FulfillmentSyncService
     ) {
     }
 
-    /** @return array{checked: int, fulfilled: int, synced: int, skipped: int, failed: int, message: string} */
-    public function sync(int $limit = 200): array
+    /** @return array{checked: int, fulfilled: int, synced: int, skipped: int, failed: int, packiyo_customer_id: string|null, message: string} */
+    public function sync(int $limit = 200, ?string $packiyoCustomerId = null): array
     {
+        $packiyoCustomerId = trim((string) $packiyoCustomerId);
+        $packiyoCustomerId = $packiyoCustomerId !== '' ? $packiyoCustomerId : null;
         $summary = [
             'checked' => 0,
             'fulfilled' => 0,
             'synced' => 0,
             'skipped' => 0,
             'failed' => 0,
+            'packiyo_customer_id' => $packiyoCustomerId,
             'message' => '',
         ];
 
-        $this->log()->info('fulfillment_sync', 'Fulfillment sync started.');
+        $this->log()->info(
+            'fulfillment_sync',
+            'Fulfillment sync started' . ($packiyoCustomerId !== null ? ' for Packiyo customer ' . $packiyoCustomerId : '') . '.'
+        );
         $jtlUnavailableMessage = null;
 
-        foreach ($this->orderModel()->all($limit) as $mapping) {
+        foreach ($this->orderModel()->all($limit, $packiyoCustomerId) as $mapping) {
             $summary['checked']++;
 
             try {
@@ -57,6 +63,11 @@ final class FulfillmentSyncService
                 foreach ($shipments as $shipment) {
                     if ($this->fulfillmentModel()->exists((string) $mapping['jtl_order_id'], $shipment['tracking_number'])) {
                         $summary['skipped']++;
+                        $this->log()->info(
+                            'fulfillment_sync',
+                            'Tracking ' . $shipment['tracking_number'] . ' for JTL order '
+                            . (string) $mapping['jtl_order_id'] . ' was already completed in JTL sync history.'
+                        );
                         continue;
                     }
 
@@ -94,7 +105,8 @@ final class FulfillmentSyncService
 
         $summary['message'] = ($jtlUnavailableMessage !== null ? 'Fulfillment sync detenido: ' . $jtlUnavailableMessage . ' ' : '')
             . sprintf(
-                'Fulfillment sync terminado: %d revisadas, %d con tracking, %d enviadas a JTL, %d omitidas, %d errores.',
+                'Fulfillment sync terminado%s: %d revisadas, %d con tracking, %d enviadas a JTL, %d omitidas, %d errores.',
+                $packiyoCustomerId !== null ? ' para cliente Packiyo ' . $packiyoCustomerId : '',
                 $summary['checked'],
                 $summary['fulfilled'],
                 $summary['synced'],
@@ -247,6 +259,8 @@ final class FulfillmentSyncService
             'jtl_order_id' => (string) $mapping['jtl_order_id'],
             'jtl_order_number' => $mapping['jtl_order_number'] ?? null,
             'packiyo_order_id' => (string) $mapping['packiyo_order_id'],
+            'packiyo_customer_id' => $mapping['packiyo_customer_id'] ?? null,
+            'packiyo_customer_name' => $mapping['packiyo_customer_name'] ?? null,
             'packiyo_shipment_id' => $shipment['packiyo_shipment_id'],
             'packiyo_tracking_id' => $shipment['packiyo_tracking_id'],
             'tracking_number' => $shipment['tracking_number'],

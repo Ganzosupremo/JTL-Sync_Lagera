@@ -59,6 +59,7 @@ final class DashboardController
         $productSkuAliasError = null;
         $jtlOrderCustomerFilter = is_scalar($_GET['jtl_customer'] ?? null) ? trim((string) $_GET['jtl_customer']) : '';
         $jtlOrderMappedCustomerFilter = is_scalar($_GET['jtl_mapped_customer'] ?? null) ? trim((string) $_GET['jtl_mapped_customer']) : '';
+        $fulfillmentCustomerId = is_scalar($_GET['fulfillment_customer_id'] ?? null) ? trim((string) $_GET['fulfillment_customer_id']) : '';
         $selectedProductCustomerId = is_scalar($_GET['customer_id'] ?? null) ? (string) $_GET['customer_id'] : '';
         $selectedSkuAliasCustomerId = is_scalar($_GET['sku_customer_id'] ?? null) ? (string) $_GET['sku_customer_id'] : '';
         $productImportCategoryId = is_scalar($_GET['category_id'] ?? null)
@@ -136,7 +137,7 @@ final class DashboardController
             $syncStates->get('packiyo_customers'),
             $syncStates->get('fulfillment_sync'),
             $syncStates->get('automation'),
-            $fulfillmentSyncs->recent(50),
+            $fulfillmentSyncs->recent(50, $fulfillmentCustomerId),
             $jtlOrders,
             $jtlOrdersError,
             $jtlWorkerSyncs,
@@ -144,6 +145,7 @@ final class DashboardController
             $jtlWorkerError,
             $jtlOrderCustomerFilter,
             $jtlOrderMappedCustomerFilter,
+            $fulfillmentCustomerId,
             $productSkuAliasRows,
             $productSkuAliasProducts,
             $productSkuAliasError,
@@ -176,6 +178,7 @@ final class DashboardController
      * @param array<string, mixed>|null $jtlWorkerStatus
      * @param string $jtlOrderCustomerFilter
      * @param string $jtlOrderMappedCustomerFilter
+     * @param string $fulfillmentCustomerId
      * @param array<int, array<string, mixed>> $productSkuAliasRows
      * @param array<int, array<string, mixed>> $productSkuAliasProducts
      * @param array<int, array<string, mixed>> $productRows
@@ -202,6 +205,7 @@ final class DashboardController
         ?string $jtlWorkerError,
         string $jtlOrderCustomerFilter,
         string $jtlOrderMappedCustomerFilter,
+        string $fulfillmentCustomerId,
         array $productSkuAliasRows,
         array $productSkuAliasProducts,
         ?string $productSkuAliasError,
@@ -857,7 +861,7 @@ final class DashboardController
             <?php endif; ?>
 
             <?php if ($tab === 'fulfillment'): ?>
-                <?= $this->renderFulfillment($fulfillmentRows, $fulfillmentState) ?>
+                <?= $this->renderFulfillment($fulfillmentRows, $fulfillmentState, $activeCustomers, $fulfillmentCustomerId) ?>
             <?php endif; ?>
 
             <?php if ($tab === 'packiyo-customers'): ?>
@@ -1366,19 +1370,39 @@ final class DashboardController
     /**
      * @param array<int, array<string, mixed>> $rows
      * @param array<string, mixed>|null $state
+     * @param array<int, array<string, mixed>> $activeCustomers
      */
-    private function renderFulfillment(array $rows, ?array $state): string
+    private function renderFulfillment(array $rows, ?array $state, array $activeCustomers, string $selectedCustomerId): string
     {
         ob_start();
         ?>
             <section>
                 <div class="section-head">
                     <h2>Fulfillment Packiyo -> JTL</h2>
-                    <form action="<?= $this->e($this->url('/fulfillment/sync')) ?>" method="post">
-                        <button class="button" type="submit">Enviar tracking a JTL</button>
-                    </form>
                 </div>
                 <div class="section-body">
+                    <form class="filters" action="<?= $this->e($this->url('/')) ?>" method="get">
+                        <input type="hidden" name="tab" value="fulfillment">
+                        <select name="fulfillment_customer_id" aria-label="Cliente Packiyo">
+                            <option value="">Todos los clientes</option>
+                            <?php foreach ($activeCustomers as $customer): ?>
+                                <?php $customerId = (string) ($customer['packiyo_customer_id'] ?? ''); ?>
+                                <option value="<?= $this->e($customerId) ?>" <?= $customerId === $selectedCustomerId ? 'selected' : '' ?>>
+                                    <?= $this->e($this->customerDisplayName($customer) . ' #' . $customerId) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button class="button" type="submit">Filtrar</button>
+                        <a class="button secondary" href="<?= $this->e($this->tabUrl('fulfillment')) ?>">Limpiar</a>
+                    </form>
+
+                    <form action="<?= $this->e($this->url('/fulfillment/sync')) ?>" method="post">
+                        <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedCustomerId) ?>">
+                        <button class="button" type="submit">
+                            <?= $selectedCustomerId !== '' ? 'Enviar tracking filtrado a JTL' : 'Enviar tracking a JTL' ?>
+                        </button>
+                    </form>
+
                     <div class="details">
                         <div class="detail">
                             <span>Ultima corrida</span>

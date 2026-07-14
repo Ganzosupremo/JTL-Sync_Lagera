@@ -40,10 +40,15 @@ final class Database
                 jtl_order_number VARCHAR(100),
                 packiyo_order_id VARCHAR(100) NOT NULL,
                 packiyo_order_number VARCHAR(100),
+                packiyo_customer_id VARCHAR(100) NULL,
+                packiyo_customer_name VARCHAR(255) NULL,
                 synced_at DATETIME NOT NULL,
-                UNIQUE KEY order_mappings_jtl_order_id_unique (jtl_order_id)
+                UNIQUE KEY order_mappings_jtl_order_id_unique (jtl_order_id),
+                KEY order_mappings_packiyo_customer_index (packiyo_customer_id)
             )"
         );
+
+        self::ensureOrderMappingColumns($db);
 
         $db->query(
             "CREATE TABLE IF NOT EXISTS automation_order_skips (
@@ -170,6 +175,8 @@ final class Database
                 jtl_order_id VARCHAR(100) NOT NULL,
                 jtl_order_number VARCHAR(100) NULL,
                 packiyo_order_id VARCHAR(100) NOT NULL,
+                packiyo_customer_id VARCHAR(100) NULL,
+                packiyo_customer_name VARCHAR(255) NULL,
                 packiyo_shipment_id VARCHAR(100) NULL,
                 packiyo_tracking_id VARCHAR(100) NULL,
                 tracking_number VARCHAR(120) NOT NULL,
@@ -184,10 +191,13 @@ final class Database
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL,
                 UNIQUE KEY fulfillment_syncs_order_tracking_unique (jtl_order_id, tracking_number),
+                KEY fulfillment_syncs_customer_index (packiyo_customer_id),
                 KEY fulfillment_syncs_status_index (status),
                 KEY fulfillment_syncs_synced_at_index (synced_at)
             )"
         );
+
+        self::ensureFulfillmentSyncColumns($db);
 
         $db->query(
             "CREATE TABLE IF NOT EXISTS app_users (
@@ -347,6 +357,18 @@ final class Database
     private static function ensureJtlOrderSourceColumns(mysqli $db): void
     {
         self::addColumnIfMissing($db, 'jtl_order_sources', 'source_path', 'source_path VARCHAR(255) NULL AFTER source_value');
+    }
+
+    private static function ensureOrderMappingColumns(mysqli $db): void
+    {
+        self::addColumnIfMissing($db, 'order_mappings', 'packiyo_customer_id', 'packiyo_customer_id VARCHAR(100) NULL AFTER packiyo_order_number');
+        self::addColumnIfMissing($db, 'order_mappings', 'packiyo_customer_name', 'packiyo_customer_name VARCHAR(255) NULL AFTER packiyo_customer_id');
+    }
+
+    private static function ensureFulfillmentSyncColumns(mysqli $db): void
+    {
+        self::addColumnIfMissing($db, 'fulfillment_syncs', 'packiyo_customer_id', 'packiyo_customer_id VARCHAR(100) NULL AFTER packiyo_order_id');
+        self::addColumnIfMissing($db, 'fulfillment_syncs', 'packiyo_customer_name', 'packiyo_customer_name VARCHAR(255) NULL AFTER packiyo_customer_id');
     }
 
     private static function addColumnIfMissing(mysqli $db, string $table, string $column, string $definition): void

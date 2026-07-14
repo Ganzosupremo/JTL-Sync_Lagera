@@ -18,7 +18,8 @@ final class FulfillmentController
         }
 
         Database::migrate();
-        $summary = (new FulfillmentSyncService())->sync();
+        $packiyoCustomerId = $this->postedString('packiyo_customer_id');
+        $summary = (new FulfillmentSyncService())->sync(packiyoCustomerId: $packiyoCustomerId);
 
         if ($this->wantsJson()) {
             header('Content-Type: application/json; charset=UTF-8');
@@ -26,8 +27,17 @@ final class FulfillmentController
             return;
         }
 
+        $params = [
+            'tab' => 'fulfillment',
+            'notice' => $summary['message'],
+        ];
+
+        if ($packiyoCustomerId !== '') {
+            $params['fulfillment_customer_id'] = $packiyoCustomerId;
+        }
+
         header(
-            'Location: ' . $this->url('/') . '?tab=fulfillment&notice=' . rawurlencode($summary['message']),
+            'Location: ' . $this->url('/') . '?' . http_build_query($params),
             true,
             303
         );
@@ -38,6 +48,13 @@ final class FulfillmentController
         $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
 
         return is_string($accept) && str_contains($accept, 'application/json');
+    }
+
+    private function postedString(string $key): string
+    {
+        $value = $_POST[$key] ?? '';
+
+        return is_scalar($value) ? trim((string) $value) : '';
     }
 
     private function url(string $path): string

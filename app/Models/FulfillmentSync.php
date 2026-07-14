@@ -16,7 +16,12 @@ final class FulfillmentSync
     public function exists(string $jtlOrderId, string $trackingNumber): bool
     {
         $statement = $this->connection()->prepare(
-            'SELECT 1 FROM fulfillment_syncs WHERE jtl_order_id = ? AND tracking_number = ? LIMIT 1'
+            "SELECT 1 FROM fulfillment_syncs
+            WHERE jtl_order_id = ?
+                AND tracking_number = ?
+                AND status IN ('synced', 'already_present')
+                AND jtl_delivery_note_id IS NOT NULL
+            LIMIT 1"
         );
         $statement->bind_param('ss', $jtlOrderId, $trackingNumber);
         $statement->execute();
@@ -33,6 +38,8 @@ final class FulfillmentSync
                 jtl_order_id,
                 jtl_order_number,
                 packiyo_order_id,
+                packiyo_customer_id,
+                packiyo_customer_name,
                 packiyo_shipment_id,
                 packiyo_tracking_id,
                 tracking_number,
@@ -46,9 +53,11 @@ final class FulfillmentSync
                 synced_at,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 packiyo_order_id = VALUES(packiyo_order_id),
+                packiyo_customer_id = VALUES(packiyo_customer_id),
+                packiyo_customer_name = VALUES(packiyo_customer_name),
                 packiyo_shipment_id = VALUES(packiyo_shipment_id),
                 packiyo_tracking_id = VALUES(packiyo_tracking_id),
                 tracking_url = VALUES(tracking_url),
@@ -65,6 +74,8 @@ final class FulfillmentSync
         $jtlOrderId = (string) $data['jtl_order_id'];
         $jtlOrderNumber = $this->nullableString($data['jtl_order_number'] ?? null);
         $packiyoOrderId = (string) $data['packiyo_order_id'];
+        $packiyoCustomerId = $this->nullableString($data['packiyo_customer_id'] ?? null);
+        $packiyoCustomerName = $this->nullableString($data['packiyo_customer_name'] ?? null);
         $packiyoShipmentId = $this->nullableString($data['packiyo_shipment_id'] ?? null);
         $packiyoTrackingId = $this->nullableString($data['packiyo_tracking_id'] ?? null);
         $trackingNumber = (string) $data['tracking_number'];
@@ -78,10 +89,12 @@ final class FulfillmentSync
         $syncedAt = (string) ($data['synced_at'] ?? $now);
 
         $statement->bind_param(
-            'ssssssssssssssss',
+            'ssssssssssssssssss',
             $jtlOrderId,
             $jtlOrderNumber,
             $packiyoOrderId,
+            $packiyoCustomerId,
+            $packiyoCustomerName,
             $packiyoShipmentId,
             $packiyoTrackingId,
             $trackingNumber,
@@ -100,11 +113,24 @@ final class FulfillmentSync
     }
 
     /** @return array<int, array<string, mixed>> */
-    public function recent(int $limit = 50): array
+    public function recent(int $limit = 50, ?string $packiyoCustomerId = null): array
     {
-        $statement = $this->connection()->prepare(
-            'SELECT * FROM fulfillment_syncs ORDER BY synced_at DESC, id DESC LIMIT ?'
-        );
+        $packiyoCustomerId = trim((string) $packiyoCustomerId);
+
+        if ($packiyoCustomerId !== '') {
+            $statement = $this->connection()->prepare(
+                'SELECT * FROM fulfillment_syncs
+                WHERE packiyo_customer_id = ?
+                ORDER BY synced_at DESC, id DESC
+                LIMIT ?'
+            );
+            $statement->bind_param('si', $packiyoCustomerId, $limit);
+            $statement->execute();
+
+            return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
+        }
+
+        $statement = $this->connection()->prepare('SELECT * FROM fulfillment_syncs ORDER BY synced_at DESC, id DESC LIMIT ?');
         $statement->bind_param('i', $limit);
         $statement->execute();
 

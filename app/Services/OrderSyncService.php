@@ -212,7 +212,7 @@ final class OrderSyncService
             return 'already_synced';
         }
 
-        if (!$this->hasMappedPackiyoCustomer($order)) {
+        if ($this->mappedPackiyoCustomer($order) === null) {
             return 'unmapped';
         }
 
@@ -220,12 +220,30 @@ final class OrderSyncService
     }
 
     /** @param array<string, mixed> $order */
-    private function hasMappedPackiyoCustomer(array $order): bool
+    private function mappedPackiyoCustomer(array $order): ?array
     {
         $resolver = new PackiyoCustomerResolver();
         $mapping = (new PackiyoCustomerMapping())->findForCandidates($resolver->candidates($order));
 
-        return $mapping !== null && trim((string) ($mapping['packiyo_customer_id'] ?? '')) !== '';
+        if ($mapping === null || trim((string) ($mapping['packiyo_customer_id'] ?? '')) === '') {
+            return null;
+        }
+
+        return $mapping;
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function packiyoCustomerIdFromPayload(array $payload): ?string
+    {
+        $id = $payload['data']['relationships']['customer']['data']['id'] ?? null;
+
+        if (!is_scalar($id)) {
+            return null;
+        }
+
+        $id = trim((string) $id);
+
+        return $id !== '' ? $id : null;
     }
 
     /** @param array<string, mixed> $order */
@@ -334,6 +352,7 @@ final class OrderSyncService
             $numberOverride,
             $lineItemExternalIdSuffix
         );
+        $mappedCustomer = $this->mappedPackiyoCustomer($order);
         $packiyoOrder = $resendArchived ? null : $this->findExistingPackiyoOrder($payload, $order);
         $linkedExistingOrder = $packiyoOrder !== null;
 
@@ -373,6 +392,8 @@ final class OrderSyncService
                 ?? $numberOverride
                 ?? $this->mapper()->marketplaceOrderNumber($order)
                 ?? $this->mapper()->jtlOrderNumber($order),
+            'packiyo_customer_id' => $this->packiyoCustomerIdFromPayload($payload),
+            'packiyo_customer_name' => $mappedCustomer['packiyo_customer_name'] ?? null,
             'synced_at' => date('Y-m-d H:i:s'),
         ]);
 
