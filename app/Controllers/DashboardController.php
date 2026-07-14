@@ -2021,6 +2021,8 @@ final class DashboardController
         $database = Config::get('database.mysql', []);
         $users = (new AppUser())->all();
         $invitations = (new UserInvitation())->recent(50);
+        $workflowEvents = $this->cachedSalesOrderWorkflowEvents();
+        $workflowEventsReadAt = $this->cachedSessionString('jtl_sales_order_workflow_events_read_at');
 
         ob_start();
         ?>
@@ -2046,6 +2048,41 @@ final class DashboardController
                             <button class="button" type="submit">Guardar ajustes</button>
                         </div>
                     </form>
+
+                    <h3>Workflow events de Aufträge</h3>
+                    <p class="muted">Usa esto para sacar el ID del evento manual que crea el Lieferschein. Copia el numero en JTL_DELIVERY_NOTE_WORKFLOW_EVENT_ID.</p>
+                    <div class="jtl-worker-actions">
+                        <form class="inline-form" action="<?= $this->e($this->url('/jtl/workflows/sales-order-events')) ?>" method="post">
+                            <button class="button secondary" type="submit">Leer workflow events de JTL</button>
+                        </form>
+                    </div>
+
+                    <?php if ($workflowEventsReadAt !== null): ?>
+                        <div class="field-hint">Leido desde JTL: <?= $this->e($workflowEventsReadAt) ?></div>
+                    <?php endif; ?>
+
+                    <?php if ($workflowEvents !== []): ?>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Nombre</th>
+                                    <th>Raw</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($workflowEvents as $event): ?>
+                                    <tr>
+                                        <td><strong><?= $this->e($this->workflowEventId($event) ?: '-') ?></strong></td>
+                                        <td><?= $this->e($this->workflowEventName($event) ?: '-') ?></td>
+                                        <td class="muted"><?= $this->e($this->shortJson($event, 260)) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php else: ?>
+                        <div class="empty">Todavia no hay workflow events leidos. Crea el evento manual en JTL-Wawi y usa el boton para leer su ID.</div>
+                    <?php endif; ?>
 
                     <h3>Usuarios</h3>
                     <form class="invite-form" action="<?= $this->e($this->url('/users/invite')) ?>" method="post">
@@ -2187,6 +2224,9 @@ final class DashboardController
             'PACKIYO_BASE_URL',
             'APP_BASE_URL',
             'JTL_DELIVERY_NOTE_PACKAGES_ENDPOINT',
+            'JTL_SALES_ORDER_WORKFLOW_EVENTS_ENDPOINT',
+            'JTL_SALES_ORDER_WORKFLOW_TRIGGER_ENDPOINT',
+            'JTL_SALES_ORDER_WORKFLOW_TRIGGER_BY_ID_ENDPOINT',
         ], true);
 
         ob_start();
@@ -2220,6 +2260,12 @@ final class DashboardController
                 <?php if ($key === 'JTL_WORKER_DISCOVERY_ENABLED'): ?>
                     <div class="field-hint">Solo activa esto para diagnostico. El marketplace abgleich debe ejecutarlo JTL Worker 2.0 en JTL-Wawi, no esta app.</div>
                 <?php endif; ?>
+                <?php if ($key === 'JTL_AUTO_CREATE_DELIVERY_NOTE'): ?>
+                    <div class="field-hint">Activalo solo despues de crear en JTL-Wawi un workflow manual de Auftrag/Sales Order que genere el Lieferschein.</div>
+                <?php endif; ?>
+                <?php if ($key === 'JTL_DELIVERY_NOTE_WORKFLOW_EVENT_ID'): ?>
+                    <div class="field-hint">Es el ID numerico del workflow event de Auftrag/Sales Order que debe crear el delivery note.</div>
+                <?php endif; ?>
                 <?php if ($key === 'AUTOMATION_INTERVAL_MINUTES'): ?>
                     <div class="field-hint">360 minutos son 6 horas. El cron puede llamar /automation/tick cada 5 minutos; la app decide si ya toca correr.</div>
                 <?php endif; ?>
@@ -2241,7 +2287,7 @@ final class DashboardController
         }
 
         if ($key === 'JTL_MANDATORY_API_SCOPES' && is_scalar($value)) {
-            return JtlScopeList::sanitizeString((string) $value);
+            return implode(',', JtlScopeList::mandatoryFromConfigured((string) $value));
         }
 
         return is_scalar($value) ? (string) $value : $default;
@@ -2302,6 +2348,53 @@ final class DashboardController
         }
 
         return $items;
+    }
+
+    private function cachedSessionString(string $key): ?string
+    {
+        if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+
+        $value = $_SESSION[$key] ?? null;
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function cachedSalesOrderWorkflowEvents(): array
+    {
+        if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+
+        $events = $_SESSION['jtl_sales_order_workflow_events'] ?? [];
+
+        if (!is_array($events)) {
+            return [];
+        }
+
+        $items = [];
+
+        foreach ($events as $event) {
+            if (is_array($event)) {
+                $items[] = $event;
+            }
+        }
+
+        return $items;
+    }
+
+    /** @param array<string, mixed> $event */
+    private function workflowEventId(array $event): string
+    {
+        return $this->firstScalar($event, ['Id', 'id', 'ID']) ?? '';
+    }
+
+    /** @param array<string, mixed> $event */
+    private function workflowEventName(array $event): string
+    {
+        return $this->firstScalar($event, ['Name', 'name', 'DisplayName', 'displayName']) ?? '';
     }
 
     private function activeTab(mixed $tab): string

@@ -207,12 +207,16 @@ final class FulfillmentSyncService
     {
         $jtlOrderId = (string) $mapping['jtl_order_id'];
         $jtlOrderNumber = isset($mapping['jtl_order_number']) ? (string) $mapping['jtl_order_number'] : null;
-        $deliveryNote = $this->firstDeliveryNote($this->jtlClient()->getDeliveryNotes($jtlOrderId, $jtlOrderNumber));
+        $deliveryNote = $this->deliveryNoteForOrder($jtlOrderId, $jtlOrderNumber);
 
         if ($deliveryNote === null) {
-            throw new RuntimeException(
-                'No JTL delivery note was found for order ' . ($jtlOrderNumber ?: $jtlOrderId) . '.'
-            );
+            $message = 'No JTL delivery note was found for order ' . ($jtlOrderNumber ?: $jtlOrderId) . '.';
+
+            if ($this->jtlClient()->autoCreateDeliveryNoteEnabled()) {
+                $message .= ' Auto-create workflow was triggered, but no delivery note appeared within the configured retries.';
+            }
+
+            throw new RuntimeException($message);
         }
 
         $deliveryNoteId = $this->deliveryNoteId($deliveryNote);
@@ -242,6 +246,60 @@ final class FulfillmentSyncService
             $createdPackage !== null ? $this->stringValue($createdPackage, ['Id', 'id', 'PackageId', 'packageId']) : null,
             'synced'
         );
+    }
+
+    private function deliveryNoteForOrder(string $jtlOrderId, ?string $jtlOrderNumber): ?array
+    {
+        $deliveryNote = $this->findDeliveryNote($jtlOrderId, $jtlOrderNumber);
+
+        if ($deliveryNote !== null || !$this->jtlClient()->autoCreateDeliveryNoteEnabled()) {
+            return $deliveryNote;
+        }
+
+        $workflowEventId = $this->jtlClient()->deliveryNoteWorkflowEventId();
+
+        if ($workflowEventId === null) {
+            throw new RuntimeException(
+                'JTL auto-create delivery note is enabled, but JTL_DELIVERY_NOTE_WORKFLOW_EVENT_ID is empty.'
+            );
+        }
+
+        $orderLabel = $jtlOrderNumber !== null && $jtlOrderNumber !== '' ? $jtlOrderNumber : $jtlOrderId;
+        $this->log()->info(
+            'fulfillment_sync',
+            'No JTL delivery note found for order ' . $orderLabel
+            . '; triggering sales order workflow event ' . $workflowEventId . '.'
+        );
+
+        $this->jtlClient()->triggerSalesOrderWorkflowEvent($jtlOrderId, $workflowEventId);
+
+        $attempts = $this->jtlClient()->deliveryNoteCreateRetries();
+        $delaySeconds = $this->jtlClient()->deliveryNoteCreateRetryDelaySeconds();
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            if ($attempt > 1 && $delaySeconds > 0) {
+                sleep($delaySeconds);
+            }
+
+            $deliveryNote = $this->findDeliveryNote($jtlOrderId, $jtlOrderNumber);
+
+            if ($deliveryNote !== null) {
+                $this->log()->info(
+                    'fulfillment_sync',
+                    'JTL delivery note found for order ' . $orderLabel
+                    . ' after workflow trigger attempt ' . $attempt . '.'
+                );
+
+                return $deliveryNote;
+            }
+        }
+
+        return null;
+    }
+
+    private function findDeliveryNote(string $jtlOrderId, ?string $jtlOrderNumber): ?array
+    {
+        return $this->firstDeliveryNote($this->jtlClient()->getDeliveryNotes($jtlOrderId, $jtlOrderNumber));
     }
 
     /**
@@ -553,7 +611,7 @@ final class FulfillmentSyncService
     private function friendlyException(Throwable $exception): string
     {
         if ($exception instanceof HttpException && $exception->statusCode() === 403) {
-            return 'JTL rejected the request with 403. Re-register this app in JTL and approve deliverynotes.read + deliverynotes.write scopes.';
+            return 'JTL rejected the request with 403. Re-register this app in JTL and approve deliverynotes.read, deliverynotes.write, salesorders.write, salesorder.triggersalesorderworkflowevent and salesorder.triggersalesorderworkflow scopes.';
         }
 
         return $exception->getMessage();

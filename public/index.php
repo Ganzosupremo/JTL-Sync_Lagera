@@ -9,6 +9,7 @@ use App\Controllers\FulfillmentController;
 use App\Controllers\JtlOrderSourceController;
 use App\Controllers\JtlRegistrationController;
 use App\Controllers\JtlWorkerController;
+use App\Controllers\JtlWorkflowController;
 use App\Controllers\PackiyoCustomerController;
 use App\Controllers\PackiyoCustomerMappingController;
 use App\Controllers\ProductImportController;
@@ -60,6 +61,7 @@ try {
         '/jtl/register/reset' => (new JtlRegistrationController())->reset(),
         '/jtl/workers/discover' => (new JtlWorkerController())->discover(),
         '/jtl/workers/start' => (new JtlWorkerController())->start(),
+        '/jtl/workflows/sales-order-events' => (new JtlWorkflowController())->salesOrderEvents(),
         '/packiyo/customers/sync' => (new PackiyoCustomerController())->sync(),
         '/packiyo/customers/activate' => (new PackiyoCustomerController())->activate(),
         '/packiyo/customers/deactivate' => (new PackiyoCustomerController())->deactivate(),

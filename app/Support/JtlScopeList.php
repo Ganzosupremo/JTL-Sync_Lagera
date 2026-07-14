@@ -10,6 +10,9 @@ final class JtlScopeList
     private const DEFAULT_MANDATORY = [
         'salesorders.read',
         'salesorders.write',
+        'salesorder.querysalesorderworkflowevents',
+        'salesorder.triggersalesorderworkflow',
+        'salesorder.triggersalesorderworkflowevent',
         'items.read',
         'items.write',
         'item.queryitems',

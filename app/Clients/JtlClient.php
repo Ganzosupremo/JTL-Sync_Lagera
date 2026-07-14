@@ -294,6 +294,83 @@ final class JtlClient
         ]);
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function getSalesOrderWorkflowEvents(): array
+    {
+        $endpoint = (string) ($this->config['sales_order_workflow_events_endpoint'] ?? '');
+
+        if ($endpoint === '') {
+            return [];
+        }
+
+        return $this->collection($this->http->get($endpoint));
+    }
+
+    /** @return array<string, mixed> */
+    public function triggerSalesOrderWorkflowEvent(string $salesOrderId, int $workflowEventId): array
+    {
+        if ($workflowEventId <= 0) {
+            throw new RuntimeException('JTL sales order workflow event ID is not configured.');
+        }
+
+        $endpoint = $this->endpointWithReplacements(
+            (string) ($this->config['sales_order_workflow_trigger_endpoint'] ?? ''),
+            ['id' => $salesOrderId, 'salesOrderId' => $salesOrderId]
+        );
+        $lastException = null;
+
+        if ($endpoint !== '') {
+            try {
+                return $this->http->post($endpoint, [
+                    'json' => ['Id' => $workflowEventId],
+                ]);
+            } catch (HttpException $exception) {
+                $lastException = $exception;
+
+                if (!in_array($exception->statusCode(), [400, 404, 405], true)) {
+                    throw $exception;
+                }
+            }
+        }
+
+        $fallbackEndpoint = $this->endpointWithReplacements(
+            (string) ($this->config['sales_order_workflow_trigger_by_id_endpoint'] ?? ''),
+            [
+                'id' => $salesOrderId,
+                'salesOrderId' => $salesOrderId,
+                'workflowEventId' => (string) $workflowEventId,
+            ]
+        );
+
+        if ($fallbackEndpoint !== '') {
+            return $this->http->post($fallbackEndpoint);
+        }
+
+        throw $lastException ?? new RuntimeException('JTL sales order workflow trigger endpoint is not configured.');
+    }
+
+    public function autoCreateDeliveryNoteEnabled(): bool
+    {
+        return (bool) ($this->config['auto_create_delivery_note'] ?? false);
+    }
+
+    public function deliveryNoteWorkflowEventId(): ?int
+    {
+        $value = trim((string) ($this->config['delivery_note_workflow_event_id'] ?? ''));
+
+        return ctype_digit($value) && (int) $value > 0 ? (int) $value : null;
+    }
+
+    public function deliveryNoteCreateRetries(): int
+    {
+        return max(1, min(20, (int) ($this->config['delivery_note_create_retries'] ?? 5)));
+    }
+
+    public function deliveryNoteCreateRetryDelaySeconds(): int
+    {
+        return max(0, min(30, (int) ($this->config['delivery_note_create_retry_delay_seconds'] ?? 2)));
+    }
+
     public function status(): string
     {
         if ($this->isConfigured()) {
@@ -416,6 +493,16 @@ final class JtlClient
     private function endpoint(string $name, string $id): string
     {
         return str_replace('{id}', rawurlencode($id), (string) ($this->config[$name] ?? ''));
+    }
+
+    /** @param array<string, string> $replacements */
+    private function endpointWithReplacements(string $endpoint, array $replacements): string
+    {
+        foreach ($replacements as $key => $value) {
+            $endpoint = str_replace('{' . $key . '}', rawurlencode($value), $endpoint);
+        }
+
+        return $endpoint;
     }
 
     private function deliveryNotePackagesEndpoint(string $id): string
