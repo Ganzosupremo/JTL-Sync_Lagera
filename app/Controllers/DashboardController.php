@@ -301,14 +301,19 @@ final class DashboardController
         }
 
         .button {
+            align-items: center;
             border: 0;
             border-radius: 6px;
             background: var(--accent);
             color: #fff;
             cursor: pointer;
+            display: inline-flex;
             font-weight: 700;
+            justify-content: center;
+            line-height: 1.2;
             min-height: 40px;
             padding: 0 16px;
+            text-decoration: none;
             white-space: nowrap;
         }
 
@@ -566,6 +571,34 @@ final class DashboardController
             margin-bottom: 14px;
         }
 
+        .fulfillment-toolbar {
+            align-items: flex-start;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .fulfillment-filter-form {
+            align-items: stretch;
+            display: grid;
+            flex: 1 1 620px;
+            gap: 10px;
+            grid-template-columns: minmax(260px, 1fr) auto auto;
+            margin: 0;
+        }
+
+        .fulfillment-sync-form {
+            display: flex;
+            flex: 0 0 auto;
+            justify-content: flex-end;
+            margin: 0;
+        }
+
+        .fulfillment-sync-form .button {
+            min-width: 190px;
+        }
+
         .button-link {
             align-items: center;
             display: inline-flex;
@@ -762,8 +795,19 @@ final class DashboardController
                 padding-top: 18px;
             }
 
-            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .jtl-order-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid {
+            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .jtl-order-filter-form, .fulfillment-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .fulfillment-toolbar {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .fulfillment-filter-form,
+            .fulfillment-sync-form,
+            .fulfillment-sync-form .button {
+                width: 100%;
             }
 
             .section-head {
@@ -1381,27 +1425,29 @@ final class DashboardController
                     <h2>Fulfillment Packiyo -> JTL</h2>
                 </div>
                 <div class="section-body">
-                    <form class="filters" action="<?= $this->e($this->url('/')) ?>" method="get">
-                        <input type="hidden" name="tab" value="fulfillment">
-                        <select name="fulfillment_customer_id" aria-label="Cliente Packiyo">
-                            <option value="">Todos los clientes</option>
-                            <?php foreach ($activeCustomers as $customer): ?>
-                                <?php $customerId = (string) ($customer['packiyo_customer_id'] ?? ''); ?>
-                                <option value="<?= $this->e($customerId) ?>" <?= $customerId === $selectedCustomerId ? 'selected' : '' ?>>
-                                    <?= $this->e($this->customerDisplayName($customer) . ' #' . $customerId) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <button class="button" type="submit">Filtrar</button>
-                        <a class="button secondary" href="<?= $this->e($this->tabUrl('fulfillment')) ?>">Limpiar</a>
-                    </form>
+                    <div class="fulfillment-toolbar">
+                        <form class="fulfillment-filter-form" action="<?= $this->e($this->url('/')) ?>" method="get">
+                            <input type="hidden" name="tab" value="fulfillment">
+                            <select name="fulfillment_customer_id" aria-label="Cliente Packiyo">
+                                <option value="">Todos los clientes</option>
+                                <?php foreach ($activeCustomers as $customer): ?>
+                                    <?php $customerId = (string) ($customer['packiyo_customer_id'] ?? ''); ?>
+                                    <option value="<?= $this->e($customerId) ?>" <?= $customerId === $selectedCustomerId ? 'selected' : '' ?>>
+                                        <?= $this->e($this->customerDisplayName($customer) . ' #' . $customerId) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button class="button" type="submit">Filtrar</button>
+                            <a class="button secondary" href="<?= $this->e($this->tabUrl('fulfillment')) ?>">Limpiar</a>
+                        </form>
 
-                    <form action="<?= $this->e($this->url('/fulfillment/sync')) ?>" method="post">
-                        <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedCustomerId) ?>">
-                        <button class="button" type="submit">
-                            <?= $selectedCustomerId !== '' ? 'Enviar tracking filtrado a JTL' : 'Enviar tracking a JTL' ?>
-                        </button>
-                    </form>
+                        <form class="fulfillment-sync-form" action="<?= $this->e($this->url('/fulfillment/sync')) ?>" method="post">
+                            <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedCustomerId) ?>">
+                            <button class="button" type="submit">
+                                <?= $selectedCustomerId !== '' ? 'Enviar tracking filtrado a JTL' : 'Enviar tracking a JTL' ?>
+                            </button>
+                        </form>
+                    </div>
 
                     <div class="details">
                         <div class="detail">
