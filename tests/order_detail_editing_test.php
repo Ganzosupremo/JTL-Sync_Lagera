@@ -75,9 +75,9 @@ $sentDetail = $editableDetail;
 $sentDetail['readonly'] = true;
 $sentHtml = (string) $renderOrderDetail->invoke($controller, $sentDetail, null);
 
-assertContainsText('Esta orden ya fue enviada a Packiyo y es de solo lectura.', $sentHtml, 'Una orden enviada debe explicar por que no se puede editar.');
-assertContainsText('class="product-picker" disabled', $sentHtml, 'El selector de una orden enviada debe estar deshabilitado.');
-assertNotContainsText('Guardar borrador', $sentHtml, 'Una orden enviada no debe mostrar controles de guardado.');
+assertContainsText('Esta orden ya fue enviada a Packiyo, pero puedes editar su borrador local', $sentHtml, 'Una orden enviada debe explicar que la edicion local no cambia Packiyo.');
+assertNotContainsText('class="product-picker" disabled', $sentHtml, 'El selector de una orden enviada debe seguir habilitado para remapeo local.');
+assertContainsText('Guardar borrador', $sentHtml, 'Una orden enviada debe mostrar controles de guardado local.');
 
 echo "order_detail_editing_test: OK\n";
 

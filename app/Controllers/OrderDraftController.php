@@ -25,9 +25,6 @@ final class OrderDraftController
         $reference = trim((string) ($_POST['order_reference'] ?? ''));
         try {
             $detail = (new OrderDetailService())->load($reference, true);
-            if (!empty($detail['readonly'])) {
-                throw new \RuntimeException('La orden ya fue enviada y es de solo lectura.');
-            }
             $data = [
                 'shipping_address' => $this->address($_POST['shipping_address'] ?? []),
                 'billing_address' => $this->address($_POST['billing_address'] ?? []),
@@ -65,9 +62,6 @@ final class OrderDraftController
         $reference = trim((string) ($_POST['order_reference'] ?? ''));
         try {
             $detail = (new OrderDetailService())->load($reference);
-            if (!empty($detail['readonly'])) {
-                throw new \RuntimeException('La orden ya fue enviada y es de solo lectura.');
-            }
             (new OrderDraft())->delete((string) $detail['id']);
             (new AutomationOrderSkip())->deleteByOrderId((string) $detail['id']);
             $message = 'Cambios locales descartados.';

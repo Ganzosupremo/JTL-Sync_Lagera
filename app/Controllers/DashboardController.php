@@ -1343,7 +1343,10 @@ final class DashboardController
                         <div class="empty">No se pudo cargar el detalle: <?= $this->e($error) ?></div>
                     <?php else: ?>
                         <?php
-                            $readonly = !empty($detail['readonly']);
+                            $sent = !empty($detail['readonly']);
+                            // A sent order remains editable locally for remapping/testing.
+                            // Saving here only changes the local draft, not the Packiyo order.
+                            $readonly = false;
                             $data = is_array($detail['data'] ?? null) ? $detail['data'] : [];
                             $items = is_array($data['items'] ?? null) ? $data['items'] : [];
                             $catalog = is_array($detail['catalog'] ?? null) ? $detail['catalog'] : [];
@@ -1351,11 +1354,11 @@ final class DashboardController
                         <div class="details">
                             <div class="detail"><span>ID JTL</span><strong><?= $this->e($detail['id'] ?? '-') ?></strong></div>
                             <div class="detail"><span>Cliente Packiyo</span><strong><?= $this->e(($detail['customer_name'] ?? '-') . ' #' . ($detail['customer_id'] ?? '-')) ?></strong></div>
-                            <div class="detail"><span>Estado</span><strong><span class="status <?= $readonly ? 'synced' : (($detail['errors'] ?? []) === [] ? 'ready' : 'missing_config') ?>"><?= $readonly ? 'enviada' : (($detail['errors'] ?? []) === [] ? 'lista' : 'requiere_revision') ?></span></strong></div>
+                            <div class="detail"><span>Estado</span><strong><span class="status <?= $sent ? 'synced' : (($detail['errors'] ?? []) === [] ? 'ready' : 'missing_config') ?>"><?= $sent ? 'enviada' : (($detail['errors'] ?? []) === [] ? 'lista' : 'requiere_revision') ?></span></strong></div>
                             <div class="detail"><span>Borrador</span><strong><?= $this->e($detail['draft']['updated_at'] ?? 'sin guardar') ?></strong></div>
                         </div>
-                        <?php if ($readonly): ?>
-                            <div class="notice">Esta orden ya fue enviada a Packiyo y es de solo lectura. Para mapear o corregir una orden, abre <strong>Editar y mapear</strong> desde la tabla <strong>Ordenes nuevas de JTL</strong> antes de enviarla.</div>
+                        <?php if ($sent): ?>
+                            <div class="notice">Esta orden ya fue enviada a Packiyo, pero puedes editar su borrador local para probar o corregir el mapeo. Estos cambios no modifican la orden que ya existe en Packiyo.</div>
                         <?php elseif (($detail['customer_id'] ?? '') === ''): ?>
                             <div class="notice">Esta orden todavía no tiene un cliente Packiyo asignado. Configura primero el mapeo del cliente para poder cargar su catálogo y seleccionar un producto.</div>
                         <?php else: ?>
@@ -1623,7 +1626,7 @@ final class DashboardController
                                         </td>
                                         <td>
                                             <?php if (($order['reference'] ?? '') !== ''): ?>
-                                                <a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $order['reference'], 'jtl_customer' => $customerFilter, 'jtl_mapped_customer' => $mappedCustomerFilter])) ?>"><?= !empty($order['readonly']) ? 'Ver detalles (solo lectura)' : 'Editar y mapear' ?></a>
+                                                <a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $order['reference'], 'jtl_customer' => $customerFilter, 'jtl_mapped_customer' => $mappedCustomerFilter])) ?>">Editar y mapear</a>
                                             <?php endif; ?>
                                             <?php if (($order['sync_state'] ?? '') === 'confirmed'): ?>
                                                 <span class="status synced">confirmada</span>
@@ -2317,7 +2320,7 @@ final class DashboardController
                                     <td><?= $this->e($mapping['packiyo_order_number'] ?: $mapping['packiyo_order_id']) ?></td>
                                     <td><?= $this->e($mapping['synced_at']) ?></td>
                                     <td>synced</td>
-                                    <td><a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $mapping['jtl_order_id']])) ?>">Ver historial (solo lectura)</a></td>
+                                    <td><a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $mapping['jtl_order_id']])) ?>">Editar y mapear</a></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
