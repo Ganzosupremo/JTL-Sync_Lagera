@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Clients\PackiyoClient;
 use App\Models\ProductNameMapping;
+use App\Models\PackiyoProductCatalogCache;
 use Throwable;
 
 final class OrderPreparationService
@@ -15,12 +16,13 @@ final class OrderPreparationService
 
     public function __construct(
         private readonly ?PackiyoClient $packiyo = null,
-        private readonly ?ProductNameMapping $nameMappings = null
+        private readonly ?ProductNameMapping $nameMappings = null,
+        private readonly ?PackiyoProductCatalogCache $catalogStore = null
     ) {
     }
 
     /** @param array<int, array<string, mixed>> $items @return array<int, array<string, mixed>> */
-    public function prepareItems(array $items, ?string $customerId): array
+    public function prepareItems(array $items, ?string $customerId, bool $allowRemoteCatalog = true): array
     {
         $prepared = [];
 
@@ -58,7 +60,7 @@ final class OrderPreparationService
                     $row['score'] = 1.0;
                 } else {
                     try {
-                        $matches = $this->matchCandidates($name, $this->catalog($customerId));
+                        $matches = $this->matchCandidates($name, $this->catalog($customerId, $allowRemoteCatalog));
                         $row['suggestions'] = array_slice($matches, 0, 5);
                         $best = $matches[0] ?? null;
                         $second = $matches[1] ?? null;
@@ -139,10 +141,19 @@ final class OrderPreparationService
     }
 
     /** @return array<int, array<string, string>> */
-    public function catalog(string $customerId): array
+    public function catalog(string $customerId, bool $allowRemote = true, bool $forceRefresh = false): array
     {
-        if (isset($this->catalogCache[$customerId])) {
+        if (!$forceRefresh && isset($this->catalogCache[$customerId])) {
             return $this->catalogCache[$customerId];
+        }
+
+        if (!$forceRefresh) {
+            $cached = $this->catalogModel()->allForCustomer($customerId);
+            if ($cached !== [] || !$allowRemote) {
+                return $this->catalogCache[$customerId] = $cached;
+            }
+        } elseif (!$allowRemote) {
+            return $this->catalogCache[$customerId] = $this->catalogModel()->allForCustomer($customerId);
         }
 
         $catalog = [];
@@ -162,6 +173,7 @@ final class OrderPreparationService
             ];
         }
 
+        $this->catalogModel()->replaceForCustomer($customerId, $catalog);
         return $this->catalogCache[$customerId] = $catalog;
     }
 
@@ -292,5 +304,10 @@ final class OrderPreparationService
     private function mappingModel(): ProductNameMapping
     {
         return $this->nameMappings ?? new ProductNameMapping();
+    }
+
+    private function catalogModel(): PackiyoProductCatalogCache
+    {
+        return $this->catalogStore ?? new PackiyoProductCatalogCache();
     }
 }

@@ -11,6 +11,7 @@ use App\Controllers\JtlRegistrationController;
 use App\Controllers\JtlWorkerController;
 use App\Controllers\JtlWorkflowController;
 use App\Controllers\PackiyoCustomerController;
+use App\Controllers\PackiyoProductCatalogController;
 use App\Controllers\PackiyoCustomerMappingController;
 use App\Controllers\OrderDraftController;
 use App\Controllers\ProductNameMappingController;
@@ -69,6 +70,7 @@ try {
         '/packiyo/customers/sync' => (new PackiyoCustomerController())->sync(),
         '/packiyo/customers/activate' => (new PackiyoCustomerController())->activate(),
         '/packiyo/customers/deactivate' => (new PackiyoCustomerController())->deactivate(),
+        '/packiyo/product-catalog/refresh' => (new PackiyoProductCatalogController())->refresh(),
         '/packiyo/customer-mappings' => (new PackiyoCustomerMappingController())->store(),
         '/packiyo/customer-mappings/delete' => (new PackiyoCustomerMappingController())->delete(),
         '/packiyo/sku-aliases' => (new ProductSkuAliasController())->store(),

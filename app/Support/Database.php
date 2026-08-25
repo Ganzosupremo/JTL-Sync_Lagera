@@ -88,6 +88,20 @@ final class Database
         );
 
         $db->query(
+            "CREATE TABLE IF NOT EXISTS packiyo_product_catalog_cache (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                packiyo_customer_id VARCHAR(100) NOT NULL,
+                packiyo_product_id VARCHAR(100) NULL,
+                sku VARCHAR(150) NOT NULL,
+                product_name VARCHAR(500) NOT NULL,
+                synced_at DATETIME NOT NULL,
+                UNIQUE KEY packiyo_product_catalog_customer_sku_unique (packiyo_customer_id, sku),
+                KEY packiyo_product_catalog_customer_index (packiyo_customer_id),
+                KEY packiyo_product_catalog_synced_index (synced_at)
+            )"
+        );
+
+        $db->query(
             "CREATE TABLE IF NOT EXISTS automation_order_skips (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 jtl_order_id VARCHAR(100) NOT NULL,
