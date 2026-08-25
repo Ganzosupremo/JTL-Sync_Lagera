@@ -34,6 +34,39 @@ final class OrderMapping
         return is_array($row) ? $row : null;
     }
 
+    /**
+     * @param array<int, string> $jtlOrderIds
+     * @return array<string, array<string, mixed>>
+     */
+    public function findByJtlOrderIds(array $jtlOrderIds): array
+    {
+        $jtlOrderIds = array_values(array_unique(array_filter(
+            array_map(static fn (mixed $id): string => trim((string) $id), $jtlOrderIds),
+            static fn (string $id): bool => $id !== ''
+        )));
+
+        if ($jtlOrderIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($jtlOrderIds), '?'));
+        $result = $this->connection()->execute_query(
+            'SELECT * FROM order_mappings WHERE jtl_order_id IN (' . $placeholders . ')',
+            $jtlOrderIds
+        );
+        $rows = [];
+
+        foreach ($result->fetch_all(MYSQLI_ASSOC) as $row) {
+            $id = trim((string) ($row['jtl_order_id'] ?? ''));
+
+            if ($id !== '') {
+                $rows[$id] = $row;
+            }
+        }
+
+        return $rows;
+    }
+
     public function deleteByJtlOrderId(string $jtlOrderId): void
     {
         $statement = $this->connection()->prepare('DELETE FROM order_mappings WHERE jtl_order_id = ?');

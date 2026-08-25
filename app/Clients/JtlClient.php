@@ -20,13 +20,13 @@ final class JtlClient
     /** @var array<string, mixed> */
     private array $config;
 
-    public function __construct(?HttpClient $http = null)
+    public function __construct(?HttpClient $http = null, ?int $timeout = null)
     {
         $this->config = Config::load('jtl');
         $this->http = $http ?? new HttpClient(
             (string) ($this->config['base_url'] ?? ''),
             $this->headers(),
-            (int) ($this->config['timeout'] ?? 30),
+            max(1, $timeout ?? (int) ($this->config['timeout'] ?? 30)),
             (bool) ($this->config['ssl_verify'] ?? true)
         );
     }
