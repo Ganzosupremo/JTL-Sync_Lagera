@@ -1397,6 +1397,7 @@ final class DashboardController
                                 <div class="actions">
                                     <button class="button secondary" type="button" id="add-order-line">Agregar articulo</button>
                                     <button class="button secondary" type="submit" formnovalidate>Guardar borrador</button>
+                                    <button class="button secondary" type="submit" name="save_and_close" value="1" formnovalidate>Guardar y cerrar</button>
                                     <button class="button" type="submit" name="send_after_save" value="1">Guardar y enviar a Packiyo</button>
                                 </div>
                             <?php endif; ?>

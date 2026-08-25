@@ -49,7 +49,7 @@ final class OrderDraftController
         } catch (Throwable $exception) {
             $message = $exception->getMessage();
         }
-        $this->redirect($reference, $message);
+        $this->redirect($reference, $message, ($_POST['save_and_close'] ?? '') === '1');
     }
 
     public function reset(): void
@@ -141,9 +141,13 @@ final class OrderDraftController
         }
     }
 
-    private function redirect(string $reference, string $message): void
+    private function redirect(string $reference, string $message, bool $close = false): void
     {
-        header('Location: ' . $this->url('/') . '?' . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $reference, 'notice' => $message]), true, 303);
+        $query = ['tab' => 'jtl-orders', 'notice' => $message];
+        if (!$close) {
+            $query['order_reference'] = $reference;
+        }
+        header('Location: ' . $this->url('/') . '?' . http_build_query($query), true, 303);
     }
 
     private function isPost(): bool { return ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST'; }
