@@ -21,36 +21,39 @@ final class OrderDetailService
     }
 
     /** @return array<string, mixed> */
-    public function load(string $reference, bool $ignoreDraft = false): array
+    /** @param array<int, array<string, mixed>>|null $knownOrders */
+    public function load(string $reference, bool $ignoreDraft = false, ?array $knownOrders = null): array
     {
         $reference = trim($reference);
         $storedDraft = $this->draftModel()->find($reference);
         $storedSource = is_array($storedDraft['source'] ?? null) ? $storedDraft['source'] : [];
         $order = is_array($storedSource['order'] ?? null)
             ? $storedSource['order']
-            : $this->findOrder($reference);
+            : $this->findOrder($reference, $knownOrders);
         $mapper = new MappingService();
         $id = $mapper->jtlOrderId($order);
         if ($id === null) {
             throw new RuntimeException('La orden JTL no tiene un ID utilizable.');
         }
+        $detailLoaded = false;
         try {
             $fullOrder = $this->unwrap($this->jtlClient()->getOrder($id));
             if ($fullOrder !== []) {
                 $order = array_replace($order, $fullOrder);
+                $detailLoaded = true;
             }
         } catch (Throwable) {
         }
         $items = is_array($storedSource['items'] ?? null)
             ? array_values(array_filter($storedSource['items'], 'is_array'))
-            : $this->itemsFromOrder($order);
+            : $this->itemsFromOrder($order, $detailLoaded);
         $mapping = (new PackiyoCustomerMapping())->findForCandidates((new PackiyoCustomerResolver())->candidates($order));
         $customerId = trim((string) ($mapping['packiyo_customer_id'] ?? ''));
         $draft = $ignoreDraft ? null : ($storedDraft ?? $this->draftModel()->find($id));
         $data = is_array($draft['data'] ?? null) ? $draft['data'] : [
             'shipping_address' => $this->firstArray($order, ['shipping_address', 'shippingAddress', 'ShippingAddress', 'deliveryAddress', 'DeliveryAddress', 'Shipmentaddress', 'ShipmentAddress', 'shipmentAddress']),
             'billing_address' => $this->firstArray($order, ['billing_address', 'billingAddress', 'BillingAddress', 'invoiceAddress', 'InvoiceAddress']),
-            'items' => $this->preparationService()->prepareItems($items, $customerId !== '' ? $customerId : null),
+            'items' => $this->preparationService()->prepareItems($items, $customerId !== '' ? $customerId : null, false),
             'shipping' => $this->preparationService()->shippingAmount($items),
         ];
         if (!array_key_exists('shipping', $data)) {
@@ -60,7 +63,7 @@ final class OrderDetailService
         $catalogError = null;
         if ($customerId !== '') {
             try {
-                $catalog = $this->preparationService()->catalog($customerId);
+                $catalog = $this->preparationService()->catalog($customerId, false);
             } catch (Throwable $exception) {
                 $catalogError = $exception->getMessage();
             }
@@ -86,10 +89,11 @@ final class OrderDetailService
     }
 
     /** @return array<string, mixed> */
-    private function findOrder(string $reference): array
+    private function findOrder(string $reference, ?array $knownOrders = null): array
     {
         $mapper = new MappingService();
-        foreach ($this->jtlClient()->getOrders() as $order) {
+        $orders = $knownOrders ?? $this->jtlClient()->getOrders();
+        foreach ($orders as $order) {
             if ($reference === (string) $mapper->jtlOrderId($order)
                 || $reference === (string) $mapper->jtlOrderNumber($order)
                 || $reference === (string) $mapper->marketplaceOrderNumber($order)) {
@@ -106,7 +110,7 @@ final class OrderDetailService
     }
 
     /** @param array<string, mixed> $order @return array<int, array<string, mixed>> */
-    private function itemsFromOrder(array $order): array
+    private function itemsFromOrder(array $order, bool $detailLoaded = false): array
     {
         $items = $this->extractItems($order);
         if ($items !== []) {
@@ -116,12 +120,14 @@ final class OrderDetailService
         if ($id === null) {
             return [];
         }
-        try {
+        if (!$detailLoaded) {
+            try {
             $detailItems = $this->extractItems($this->jtlClient()->getOrder($id));
             if ($detailItems !== []) {
                 return $detailItems;
             }
-        } catch (Throwable) {
+            } catch (Throwable) {
+            }
         }
         return $this->jtlClient()->getOrderItems($id);
     }

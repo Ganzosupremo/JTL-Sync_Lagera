@@ -52,6 +52,7 @@ final class DashboardController
         $registration = $credentials->latest();
         $tab = $this->activeTab($_GET['tab'] ?? 'overview');
         $jtlOrders = [];
+        $rawJtlOrders = [];
         $jtlOrdersError = null;
         $jtlWorkerSyncs = [];
         $jtlWorkerStatus = null;
@@ -107,8 +108,9 @@ final class DashboardController
             }
 
             try {
+                $rawJtlOrders = $jtl->getOrders();
                 $jtlOrders = $this->filterJtlOrderRows(
-                    $this->jtlOrderRows($jtl->getOrders(), $customerMappings, $mappings, $packiyo),
+                    $this->jtlOrderRows($rawJtlOrders, $customerMappings, $mappings),
                     $jtlOrderCustomerFilter,
                     $jtlOrderMappedCustomerFilter
                 );
@@ -118,7 +120,7 @@ final class DashboardController
 
             if ($orderReference !== '') {
                 try {
-                    $orderDetail = (new OrderDetailService())->load($orderReference);
+                    $orderDetail = (new OrderDetailService())->load($orderReference, false, $rawJtlOrders);
                 } catch (\Throwable $exception) {
                     $orderDetailError = $exception->getMessage();
                 }
@@ -146,7 +148,7 @@ final class DashboardController
         if ($tab === 'customer-mappings' && $selectedNameCustomerId !== '') {
             $productNameMappings = (new ProductNameMapping())->allForCustomer($selectedNameCustomerId);
             try {
-                $productNameCatalog = (new OrderPreparationService())->catalog($selectedNameCustomerId);
+                $productNameCatalog = (new OrderPreparationService())->catalog($selectedNameCustomerId, false);
             } catch (\Throwable $exception) {
                 $productNameCatalogError = $exception->getMessage();
             }
@@ -1349,6 +1351,14 @@ final class DashboardController
                         <?php if (($detail['catalog_error'] ?? null) !== null): ?>
                             <div class="notice">No se pudo cargar el catalogo Packiyo: <?= $this->e($detail['catalog_error']) ?></div>
                         <?php endif; ?>
+                        <?php if (!$readonly && ($detail['customer_id'] ?? '') !== ''): ?>
+                            <form class="inline-form" action="<?= $this->e($this->url('/packiyo/product-catalog/refresh')) ?>" method="post" style="margin:10px 0">
+                                <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($detail['customer_id']) ?>">
+                                <input type="hidden" name="order_reference" value="<?= $this->e($detail['id']) ?>">
+                                <button class="button secondary" type="submit"><?= $catalog === [] ? 'Cargar catalogo Packiyo' : 'Actualizar catalogo Packiyo' ?></button>
+                                <?php if ($catalog === []): ?><span class="muted">Necesario para buscar y sugerir productos por nombre.</span><?php endif; ?>
+                            </form>
+                        <?php endif; ?>
                         <?php if (($detail['errors'] ?? []) !== []): ?>
                             <div class="review-errors"><?= $this->e(implode(' ', $detail['errors'])) ?></div>
                         <?php endif; ?>
@@ -1877,6 +1887,10 @@ final class DashboardController
                     <?php elseif ($productNameCatalogError !== null): ?>
                         <div class="empty">No se pudo cargar el catalogo: <?= $this->e($productNameCatalogError) ?></div>
                     <?php else: ?>
+                        <form class="inline-form" action="<?= $this->e($this->url('/packiyo/product-catalog/refresh')) ?>" method="post" style="margin-bottom:12px">
+                            <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedNameCustomerId) ?>">
+                            <button class="button secondary" type="submit"><?= $productNameCatalog === [] ? 'Cargar productos desde Packiyo' : 'Actualizar productos desde Packiyo' ?></button>
+                        </form>
                         <form class="mapping-form" action="<?= $this->e($this->url('/packiyo/product-name-mappings')) ?>" method="post">
                             <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedNameCustomerId) ?>">
                             <input name="source_name" placeholder="Nombre original BOL" required style="grid-column:span 2">
@@ -2724,8 +2738,7 @@ final class DashboardController
     private function jtlOrderRows(
         array $orders,
         PackiyoCustomerMapping $customerMappings,
-        OrderMapping $orderMappings,
-        PackiyoClient $packiyo
+        OrderMapping $orderMappings
     ): array
     {
         $mapper = new MappingService($orderMappings);
@@ -2746,7 +2759,9 @@ final class DashboardController
             $mapping = $customerMappings->findForCandidates($candidates);
             $source = $this->primaryOrderSource($candidates);
             $orderMapping = $id !== null ? $orderMappings->findByJtlOrderId($id) : null;
-            $syncState = $this->packiyoSyncState($orderMapping, $packiyo, $id);
+            $syncState = $orderMapping === null
+                ? ['state' => 'not_synced', 'message' => '']
+                : ['state' => 'confirmed', 'message' => 'Estado basado en el mapeo local.'];
 
             $rows[] = [
                 'id' => $id ?? '',
