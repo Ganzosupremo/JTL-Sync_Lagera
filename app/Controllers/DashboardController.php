@@ -1354,6 +1354,13 @@ final class DashboardController
                             <div class="detail"><span>Estado</span><strong><span class="status <?= $readonly ? 'synced' : (($detail['errors'] ?? []) === [] ? 'ready' : 'missing_config') ?>"><?= $readonly ? 'enviada' : (($detail['errors'] ?? []) === [] ? 'lista' : 'requiere_revision') ?></span></strong></div>
                             <div class="detail"><span>Borrador</span><strong><?= $this->e($detail['draft']['updated_at'] ?? 'sin guardar') ?></strong></div>
                         </div>
+                        <?php if ($readonly): ?>
+                            <div class="notice">Esta orden ya fue enviada a Packiyo y es de solo lectura. Para mapear o corregir una orden, abre <strong>Editar y mapear</strong> desde la tabla <strong>Ordenes nuevas de JTL</strong> antes de enviarla.</div>
+                        <?php elseif (($detail['customer_id'] ?? '') === ''): ?>
+                            <div class="notice">Esta orden todavía no tiene un cliente Packiyo asignado. Configura primero el mapeo del cliente para poder cargar su catálogo y seleccionar un producto.</div>
+                        <?php else: ?>
+                            <div class="notice">Esta orden se puede editar. Selecciona un producto Packiyo en cada línea pendiente y guarda el borrador antes de enviarla.</div>
+                        <?php endif; ?>
                         <?php if (($detail['catalog_error'] ?? null) !== null): ?>
                             <div class="notice">No se pudo cargar el catalogo Packiyo: <?= $this->e($detail['catalog_error']) ?></div>
                         <?php endif; ?>
@@ -1428,6 +1435,7 @@ final class DashboardController
                                         line.querySelector('.line-sku').value = option.value;
                                         line.querySelector('.line-name').value = option.dataset.name || option.value;
                                         line.querySelector('.line-product-id').value = option.dataset.id || '';
+                                        line.querySelector('.line-resolution').value = 'manual';
                                     });
                                 })();
                             </script>
@@ -1464,7 +1472,7 @@ final class DashboardController
                 <input type="hidden" name="items[<?= $this->e($index) ?>][external_id]" value="<?= $this->e($item['external_id'] ?? '') ?>">
                 <input type="hidden" name="items[<?= $this->e($index) ?>][source_name]" value="<?= $this->e($item['source_name'] ?? '') ?>">
                 <input class="line-product-id" type="hidden" name="items[<?= $this->e($index) ?>][packiyo_product_id]" value="<?= $this->e($item['packiyo_product_id'] ?? '') ?>">
-                <input type="hidden" name="items[<?= $this->e($index) ?>][resolution]" value="<?= $this->e($item['resolution'] ?? 'manual') ?>">
+                <input class="line-resolution" type="hidden" name="items[<?= $this->e($index) ?>][resolution]" value="<?= $this->e($item['resolution'] ?? 'manual') ?>">
                 <div class="muted">Original JTL: <?= $this->e(($item['source_name'] ?? '') ?: 'sin nombre') ?> · <?= $this->e($item['resolution'] ?? 'sin resolver') ?><?= isset($item['score']) && $item['score'] !== null ? ' (' . $this->e((string) round((float) $item['score'] * 100)) . '%)' : '' ?></div>
                 <label>Producto Packiyo
                     <select class="product-picker" <?= $readonly ? 'disabled' : '' ?>>
@@ -1615,7 +1623,7 @@ final class DashboardController
                                         </td>
                                         <td>
                                             <?php if (($order['reference'] ?? '') !== ''): ?>
-                                                <a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $order['reference'], 'jtl_customer' => $customerFilter, 'jtl_mapped_customer' => $mappedCustomerFilter])) ?>">Ver detalles</a>
+                                                <a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $order['reference'], 'jtl_customer' => $customerFilter, 'jtl_mapped_customer' => $mappedCustomerFilter])) ?>"><?= !empty($order['readonly']) ? 'Ver detalles (solo lectura)' : 'Editar y mapear' ?></a>
                                             <?php endif; ?>
                                             <?php if (($order['sync_state'] ?? '') === 'confirmed'): ?>
                                                 <span class="status synced">confirmada</span>
@@ -2309,7 +2317,7 @@ final class DashboardController
                                     <td><?= $this->e($mapping['packiyo_order_number'] ?: $mapping['packiyo_order_id']) ?></td>
                                     <td><?= $this->e($mapping['synced_at']) ?></td>
                                     <td>synced</td>
-                                    <td><a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $mapping['jtl_order_id']])) ?>">Ver detalles</a></td>
+                                    <td><a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $mapping['jtl_order_id']])) ?>">Ver historial (solo lectura)</a></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -2799,6 +2807,7 @@ final class DashboardController
                     : '',
                 'packiyo_order_id' => $orderMapping['packiyo_order_id'] ?? '',
                 'packiyo_order_number' => $orderMapping['packiyo_order_number'] ?? '',
+                'readonly' => $orderMapping !== null,
                 'sync_state' => $syncState['state'],
                 'sync_message' => $syncState['message'],
                 'review_required' => ($skipReasons[$id ?? ''] ?? '') === 'requires_review',
