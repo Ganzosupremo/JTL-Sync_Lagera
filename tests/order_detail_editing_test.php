@@ -50,7 +50,7 @@ assertContainsText('data-id="packiyo-product-1"', $editableHtml, 'El selector de
 assertContainsText('name="items[0][packiyo_product_id]"', $editableHtml, 'El formulario debe enviar el ID del producto seleccionado.');
 assertContainsText('class="line-resolution"', $editableHtml, 'El formulario debe enviar el estado de resolucion de la linea.');
 assertContainsText("line.querySelector('.line-resolution').value = 'manual';", $editableHtml, 'Seleccionar un producto debe marcar la linea como correccion manual.');
-assertContainsText('Guardar borrador', $editableHtml, 'Una orden pendiente debe mostrar el control para guardar.');
+assertContainsText('>Guardar</button>', $editableHtml, 'Una orden pendiente debe mostrar el control para guardar.');
 assertContainsText('name="save_and_close" value="1"', $editableHtml, 'El formulario debe ofrecer guardar y cerrar sin enviar a Packiyo.');
 assertContainsText('Guardar y cerrar', $editableHtml, 'El formulario debe mostrar el boton para guardar y cerrar.');
 assertNotContainsText('class="product-picker" disabled', $editableHtml, 'El selector de una orden pendiente no debe estar deshabilitado.');
@@ -79,7 +79,7 @@ $sentHtml = (string) $renderOrderDetail->invoke($controller, $sentDetail, null);
 
 assertContainsText('Esta orden ya fue enviada a Packiyo, pero puedes editar su borrador local', $sentHtml, 'Una orden enviada debe explicar que la edicion local no cambia Packiyo.');
 assertNotContainsText('class="product-picker" disabled', $sentHtml, 'El selector de una orden enviada debe seguir habilitado para remapeo local.');
-assertContainsText('Guardar borrador', $sentHtml, 'Una orden enviada debe mostrar controles de guardado local.');
+assertContainsText('>Guardar</button>', $sentHtml, 'Una orden enviada debe mostrar controles de guardado local.');
 assertContainsText('Guardar y cerrar', $sentHtml, 'Una orden enviada debe poder guardar cambios y cerrar el detalle.');
 
 echo "order_detail_editing_test: OK\n";
