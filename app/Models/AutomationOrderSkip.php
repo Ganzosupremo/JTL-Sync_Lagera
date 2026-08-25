@@ -92,6 +92,13 @@ final class AutomationOrderSkip
         $statement->execute();
     }
 
+    public function deleteByOrderId(string $jtlOrderId): void
+    {
+        $statement = $this->connection()->prepare('DELETE FROM automation_order_skips WHERE jtl_order_id = ?');
+        $statement->bind_param('s', $jtlOrderId);
+        $statement->execute();
+    }
+
     private function connection(): mysqli
     {
         return $this->db ?? Database::connection();

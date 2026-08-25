@@ -12,6 +12,8 @@ use App\Controllers\JtlWorkerController;
 use App\Controllers\JtlWorkflowController;
 use App\Controllers\PackiyoCustomerController;
 use App\Controllers\PackiyoCustomerMappingController;
+use App\Controllers\OrderDraftController;
+use App\Controllers\ProductNameMappingController;
 use App\Controllers\ProductImportController;
 use App\Controllers\ProductSkuAliasController;
 use App\Controllers\SettingsController;
@@ -54,6 +56,8 @@ try {
         '/automation/manual' => (new AutomationController())->manual(),
         '/sync' => (new SyncController())->run(),
         '/sync/order' => (new SyncController())->runOne(),
+        '/jtl/orders/draft' => (new OrderDraftController())->save(),
+        '/jtl/orders/draft/reset' => (new OrderDraftController())->reset(),
         '/fulfillment/sync' => (new FulfillmentController())->sync(),
         '/jtl/order-sources/detect' => (new JtlOrderSourceController())->detect(),
         '/jtl/register' => (new JtlRegistrationController())->start(),
@@ -71,6 +75,8 @@ try {
         '/packiyo/sku-aliases/generate' => (new ProductSkuAliasController())->generate(),
         '/packiyo/sku-aliases/generate-bulk' => (new ProductSkuAliasController())->generateBulk(),
         '/packiyo/sku-aliases/delete' => (new ProductSkuAliasController())->delete(),
+        '/packiyo/product-name-mappings' => (new ProductNameMappingController())->store(),
+        '/packiyo/product-name-mappings/delete' => (new ProductNameMappingController())->delete(),
         '/products/import' => (new ProductImportController())->import(),
         '/settings' => (new SettingsController())->save(),
         '/users/invite' => (new UserInvitationController())->create(),

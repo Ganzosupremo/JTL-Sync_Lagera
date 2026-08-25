@@ -37,10 +37,11 @@ final class SyncController
             && $summary['message'] !== ''
             ? $summary['message']
             : sprintf(
-                'Sync terminado: %d creados, %d ya existentes vinculados, %d omitidos, %d errores.',
+                'Sync terminado: %d creados, %d ya existentes vinculados, %d omitidos (%d requieren revision), %d errores.',
                 $summary['created'],
                 $summary['linked'] ?? 0,
                 $summary['skipped'],
+                $summary['requires_review'] ?? 0,
                 $summary['failed']
             );
 

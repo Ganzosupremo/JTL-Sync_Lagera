@@ -7,17 +7,21 @@ namespace App\Controllers;
 use App\Clients\JtlClient;
 use App\Clients\PackiyoClient;
 use App\Models\AppSyncState;
+use App\Models\AutomationOrderSkip;
 use App\Models\AppUser;
 use App\Models\FulfillmentSync;
 use App\Models\JtlApiCredential;
 use App\Models\JtlOrderSource;
 use App\Models\OrderMapping;
+use App\Models\ProductNameMapping;
 use App\Models\PackiyoCustomer;
 use App\Models\PackiyoCustomerMapping;
 use App\Models\ProductSkuAlias;
 use App\Models\SyncLog;
 use App\Models\UserInvitation;
 use App\Services\MappingService;
+use App\Services\OrderDetailService;
+use App\Services\OrderPreparationService;
 use App\Services\PackiyoCustomerResolver;
 use App\Services\ProductImportService;
 use App\Services\ProductSkuAliasService;
@@ -57,6 +61,13 @@ final class DashboardController
         $productSkuAliasRows = [];
         $productSkuAliasProducts = [];
         $productSkuAliasError = null;
+        $orderDetail = null;
+        $orderDetailError = null;
+        $productNameMappings = [];
+        $productNameCatalog = [];
+        $productNameCatalogError = null;
+        $orderReference = is_scalar($_GET['order_reference'] ?? null) ? trim((string) $_GET['order_reference']) : '';
+        $selectedNameCustomerId = is_scalar($_GET['name_customer_id'] ?? null) ? trim((string) $_GET['name_customer_id']) : '';
         $jtlOrderCustomerFilter = is_scalar($_GET['jtl_customer'] ?? null) ? trim((string) $_GET['jtl_customer']) : '';
         $jtlOrderMappedCustomerFilter = is_scalar($_GET['jtl_mapped_customer'] ?? null) ? trim((string) $_GET['jtl_mapped_customer']) : '';
         $fulfillmentCustomerId = is_scalar($_GET['fulfillment_customer_id'] ?? null) ? trim((string) $_GET['fulfillment_customer_id']) : '';
@@ -104,6 +115,14 @@ final class DashboardController
             } catch (\Throwable $exception) {
                 $jtlOrdersError = $exception->getMessage();
             }
+
+            if ($orderReference !== '') {
+                try {
+                    $orderDetail = (new OrderDetailService())->load($orderReference);
+                } catch (\Throwable $exception) {
+                    $orderDetailError = $exception->getMessage();
+                }
+            }
         }
 
         if ($tab === 'products' && $selectedProductCustomerId !== '') {
@@ -121,6 +140,15 @@ final class DashboardController
                 $productSkuAliasProducts = (new ProductSkuAliasService())->preview($selectedSkuAliasCustomerId);
             } catch (\Throwable $exception) {
                 $productSkuAliasError = $exception->getMessage();
+            }
+        }
+
+        if ($tab === 'customer-mappings' && $selectedNameCustomerId !== '') {
+            $productNameMappings = (new ProductNameMapping())->allForCustomer($selectedNameCustomerId);
+            try {
+                $productNameCatalog = (new OrderPreparationService())->catalog($selectedNameCustomerId);
+            } catch (\Throwable $exception) {
+                $productNameCatalogError = $exception->getMessage();
             }
         }
 
@@ -145,11 +173,17 @@ final class DashboardController
             $jtlWorkerError,
             $jtlOrderCustomerFilter,
             $jtlOrderMappedCustomerFilter,
+            $orderDetail,
+            $orderDetailError,
             $fulfillmentCustomerId,
             $productSkuAliasRows,
             $productSkuAliasProducts,
             $productSkuAliasError,
             $selectedSkuAliasCustomerId,
+            $selectedNameCustomerId,
+            $productNameMappings,
+            $productNameCatalog,
+            $productNameCatalogError,
             $productRows,
             $productImportError,
             $selectedProductCustomerId,
@@ -205,11 +239,17 @@ final class DashboardController
         ?string $jtlWorkerError,
         string $jtlOrderCustomerFilter,
         string $jtlOrderMappedCustomerFilter,
+        ?array $orderDetail,
+        ?string $orderDetailError,
         string $fulfillmentCustomerId,
         array $productSkuAliasRows,
         array $productSkuAliasProducts,
         ?string $productSkuAliasError,
         string $selectedSkuAliasCustomerId,
+        string $selectedNameCustomerId,
+        array $productNameMappings,
+        array $productNameCatalog,
+        ?string $productNameCatalogError,
         array $productRows,
         ?string $productImportError,
         string $selectedProductCustomerId,
@@ -571,6 +611,29 @@ final class DashboardController
             margin-bottom: 14px;
         }
 
+        .order-edit-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .address-editor, .order-line {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .address-fields, .order-line-fields {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .order-lines { display: grid; gap: 10px; margin: 14px 0; }
+        .order-line-fields { grid-template-columns: 1.4fr 1.4fr .7fr .7fr; }
+        .review-errors { color: var(--bad); margin: 10px 0; }
+        .suggestions { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
         .fulfillment-toolbar {
             align-items: flex-start;
             display: flex;
@@ -779,6 +842,8 @@ final class DashboardController
             }
 
             .mapping-form,
+            .order-edit-grid,
+            .order-line-fields,
             .settings-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
@@ -795,7 +860,7 @@ final class DashboardController
                 padding-top: 18px;
             }
 
-            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .jtl-order-filter-form, .fulfillment-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid {
+            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .jtl-order-filter-form, .fulfillment-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid, .order-edit-grid, .address-fields, .order-line-fields {
                 grid-template-columns: 1fr;
             }
 
@@ -892,6 +957,7 @@ final class DashboardController
             <?php endif; ?>
 
             <?php if ($tab === 'jtl-orders'): ?>
+                <?= $this->renderOrderDetail($orderDetail, $orderDetailError) ?>
                 <?= $this->renderJtlOrders(
                     $jtlOrders,
                     $jtlOrdersError,
@@ -920,7 +986,11 @@ final class DashboardController
                     $productSkuAliasRows,
                     $productSkuAliasProducts,
                     $productSkuAliasError,
-                    $selectedSkuAliasCustomerId
+                    $selectedSkuAliasCustomerId,
+                    $selectedNameCustomerId,
+                    $productNameMappings,
+                    $productNameCatalog,
+                    $productNameCatalogError
                 ) ?>
             <?php endif; ?>
 
@@ -1247,6 +1317,185 @@ final class DashboardController
         return (string) ob_get_clean();
     }
 
+    /** @param array<string, mixed>|null $detail */
+    private function renderOrderDetail(?array $detail, ?string $error): string
+    {
+        if ($detail === null && $error === null) {
+            return '';
+        }
+        ob_start();
+        ?>
+            <section id="order-detail">
+                <div class="section-head">
+                    <h2>Detalle de orden <?= $this->e($detail['number'] ?? $detail['id'] ?? '') ?></h2>
+                    <a class="button secondary button-link" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Cerrar detalle</a>
+                </div>
+                <div class="section-body">
+                    <?php if ($error !== null): ?>
+                        <div class="empty">No se pudo cargar el detalle: <?= $this->e($error) ?></div>
+                    <?php else: ?>
+                        <?php
+                            $readonly = !empty($detail['readonly']);
+                            $data = is_array($detail['data'] ?? null) ? $detail['data'] : [];
+                            $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+                            $catalog = is_array($detail['catalog'] ?? null) ? $detail['catalog'] : [];
+                        ?>
+                        <div class="details">
+                            <div class="detail"><span>ID JTL</span><strong><?= $this->e($detail['id'] ?? '-') ?></strong></div>
+                            <div class="detail"><span>Cliente Packiyo</span><strong><?= $this->e(($detail['customer_name'] ?? '-') . ' #' . ($detail['customer_id'] ?? '-')) ?></strong></div>
+                            <div class="detail"><span>Estado</span><strong><span class="status <?= $readonly ? 'synced' : (($detail['errors'] ?? []) === [] ? 'ready' : 'missing_config') ?>"><?= $readonly ? 'enviada' : (($detail['errors'] ?? []) === [] ? 'lista' : 'requiere_revision') ?></span></strong></div>
+                            <div class="detail"><span>Borrador</span><strong><?= $this->e($detail['draft']['updated_at'] ?? 'sin guardar') ?></strong></div>
+                        </div>
+                        <?php if (($detail['catalog_error'] ?? null) !== null): ?>
+                            <div class="notice">No se pudo cargar el catalogo Packiyo: <?= $this->e($detail['catalog_error']) ?></div>
+                        <?php endif; ?>
+                        <?php if (($detail['errors'] ?? []) !== []): ?>
+                            <div class="review-errors"><?= $this->e(implode(' ', $detail['errors'])) ?></div>
+                        <?php endif; ?>
+
+                        <form id="order-draft-form" action="<?= $this->e($this->url('/jtl/orders/draft')) ?>" method="post">
+                            <input type="hidden" name="order_reference" value="<?= $this->e($detail['id']) ?>">
+                            <div class="order-edit-grid">
+                                <?= $this->renderAddressEditor('Direccion de envio', 'shipping_address', is_array($data['shipping_address'] ?? null) ? $data['shipping_address'] : [], $readonly) ?>
+                                <?= $this->renderAddressEditor('Direccion de facturacion', 'billing_address', is_array($data['billing_address'] ?? null) ? $data['billing_address'] : [], $readonly) ?>
+                            </div>
+
+                            <h3>Articulos</h3>
+                            <div class="order-lines" id="order-lines">
+                                <?php foreach ($items as $index => $item): ?>
+                                    <?= $this->renderOrderLine((int) $index, $item, $catalog, $readonly) ?>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <?php if (!$readonly): ?>
+                                <div class="actions">
+                                    <button class="button secondary" type="button" id="add-order-line">Agregar articulo</button>
+                                    <button class="button secondary" type="submit" formnovalidate>Guardar borrador</button>
+                                    <button class="button" type="submit" name="send_after_save" value="1">Guardar y enviar a Packiyo</button>
+                                </div>
+                            <?php endif; ?>
+                        </form>
+
+                        <?php if (!$readonly && ($detail['draft'] ?? null) !== null): ?>
+                            <form class="inline-form" action="<?= $this->e($this->url('/jtl/orders/draft/reset')) ?>" method="post" style="margin-top:10px">
+                                <input type="hidden" name="order_reference" value="<?= $this->e($detail['id']) ?>">
+                                <button class="button secondary" type="submit">Descartar cambios locales</button>
+                            </form>
+                        <?php endif; ?>
+
+                        <?php if (!$readonly): ?>
+                            <template id="order-line-template"><?= $this->renderOrderLine('__INDEX__', [
+                                'external_id' => 'manual-__INDEX__', 'source_name' => '', 'name' => '', 'sku' => '',
+                                'quantity' => 1, 'price' => 0, 'resolution' => 'manual', 'suggestions' => [],
+                            ], $catalog, false) ?></template>
+                            <script>
+                                (() => {
+                                    const lines = document.getElementById('order-lines');
+                                    const template = document.getElementById('order-line-template');
+                                    document.getElementById('add-order-line')?.addEventListener('click', () => {
+                                        const index = lines.querySelectorAll('.order-line').length;
+                                        lines.insertAdjacentHTML('beforeend', template.innerHTML.replaceAll('__INDEX__', String(index)));
+                                        const added = lines.lastElementChild;
+                                        const externalId = added?.querySelector('input[name$="[external_id]"]');
+                                        if (externalId) externalId.value = `manual-${Date.now()}-${index}`;
+                                    });
+                                    document.getElementById('order-draft-form')?.addEventListener('change', (event) => {
+                                        if (event.target.matches('input[name$="[remove]"]')) {
+                                            const line = event.target.closest('.order-line');
+                                            line?.querySelectorAll('input:not([name$="[remove]"]), select').forEach((control) => control.disabled = event.target.checked);
+                                            return;
+                                        }
+                                        if (!event.target.matches('.product-picker')) return;
+                                        const option = event.target.selectedOptions[0];
+                                        const line = event.target.closest('.order-line');
+                                        if (!option || !line || !option.value) return;
+                                        line.querySelector('.line-sku').value = option.value;
+                                        line.querySelector('.line-name').value = option.dataset.name || option.value;
+                                        line.querySelector('.line-product-id').value = option.dataset.id || '';
+                                    });
+                                })();
+                            </script>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            </section>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    /** @param array<string, mixed> $address */
+    private function renderAddressEditor(string $title, string $prefix, array $address, bool $readonly): string
+    {
+        $fields = ['name' => 'Nombre completo', 'company' => 'Empresa', 'address1' => 'Direccion', 'address2' => 'Direccion 2', 'postal_code' => 'Codigo postal', 'city' => 'Ciudad', 'state' => 'Estado', 'country' => 'Pais', 'email' => 'Email', 'phone' => 'Telefono'];
+        ob_start(); ?>
+            <div class="address-editor">
+                <h3><?= $this->e($title) ?></h3>
+                <div class="address-fields">
+                    <?php foreach ($fields as $key => $label): ?>
+                        <label><?= $this->e($label) ?><input name="<?= $this->e($prefix) ?>[<?= $this->e($key) ?>]" value="<?= $this->e($this->addressValue($address, $key)) ?>" <?= $readonly ? 'readonly' : '' ?>></label>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php return (string) ob_get_clean();
+    }
+
+    /** @param array<string, mixed> $item @param array<int, array<string, string>> $catalog */
+    private function renderOrderLine(int|string $index, array $item, array $catalog, bool $readonly): string
+    {
+        $suggestions = is_array($item['suggestions'] ?? null) ? $item['suggestions'] : [];
+        ob_start(); ?>
+            <div class="order-line">
+                <input type="hidden" name="items[<?= $this->e($index) ?>][external_id]" value="<?= $this->e($item['external_id'] ?? '') ?>">
+                <input type="hidden" name="items[<?= $this->e($index) ?>][source_name]" value="<?= $this->e($item['source_name'] ?? '') ?>">
+                <input class="line-product-id" type="hidden" name="items[<?= $this->e($index) ?>][packiyo_product_id]" value="<?= $this->e($item['packiyo_product_id'] ?? '') ?>">
+                <input type="hidden" name="items[<?= $this->e($index) ?>][resolution]" value="<?= $this->e($item['resolution'] ?? 'manual') ?>">
+                <div class="muted">Original JTL: <?= $this->e(($item['source_name'] ?? '') ?: 'sin nombre') ?> · <?= $this->e($item['resolution'] ?? 'sin resolver') ?><?= isset($item['score']) && $item['score'] !== null ? ' (' . $this->e((string) round((float) $item['score'] * 100)) . '%)' : '' ?></div>
+                <label>Producto Packiyo
+                    <select class="product-picker" <?= $readonly ? 'disabled' : '' ?>>
+                        <option value="">Seleccionar producto</option>
+                        <?php foreach ($catalog as $product): ?>
+                            <option value="<?= $this->e($product['sku']) ?>" data-id="<?= $this->e($product['id']) ?>" data-name="<?= $this->e($product['name']) ?>" <?= (string) ($item['sku'] ?? '') === (string) $product['sku'] ? 'selected' : '' ?>><?= $this->e($product['name'] . ' · ' . $product['sku']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <div class="order-line-fields">
+                    <label>Nombre<input class="line-name" name="items[<?= $this->e($index) ?>][name]" value="<?= $this->e($item['name'] ?? '') ?>" <?= $readonly ? 'readonly' : '' ?> required></label>
+                    <label>SKU<input class="line-sku" name="items[<?= $this->e($index) ?>][sku]" value="<?= $this->e($item['sku'] ?? '') ?>" <?= $readonly ? 'readonly' : '' ?> required></label>
+                    <label>Cantidad<input type="number" min="0.0001" step="any" name="items[<?= $this->e($index) ?>][quantity]" value="<?= $this->e($item['quantity'] ?? 1) ?>" <?= $readonly ? 'readonly' : '' ?> required></label>
+                    <label>Precio<input type="number" min="0" step="any" name="items[<?= $this->e($index) ?>][price]" value="<?= $this->e($item['price'] ?? 0) ?>" <?= $readonly ? 'readonly' : '' ?> required></label>
+                </div>
+                <?php if (!$readonly): ?>
+                    <label><input type="checkbox" name="items[<?= $this->e($index) ?>][remember]" value="1" <?= ($item['source_name'] ?? '') !== '' ? 'checked' : '' ?>> Recordar nombre BOL → SKU para este cliente</label>
+                    <label><input type="checkbox" name="items[<?= $this->e($index) ?>][remove]" value="1"> Quitar esta linea</label>
+                <?php endif; ?>
+                <?php if ($suggestions !== []): ?>
+                    <div class="suggestions">Sugerencias: <?php foreach ($suggestions as $suggestion): ?><?= $this->e($suggestion['name'] . ' (' . round((float) $suggestion['score'] * 100) . '%)') ?> · <?php endforeach; ?></div>
+                <?php endif; ?>
+            </div>
+        <?php return (string) ob_get_clean();
+    }
+
+    /** @param array<string, mixed> $address */
+    private function addressValue(array $address, string $key): string
+    {
+        $aliases = [
+            'name' => ['name', 'Name', 'full_name', 'fullName'], 'company' => ['company', 'Company', 'companyName', 'CompanyName'],
+            'address1' => ['address1', 'Address1', 'street', 'Street', 'street1', 'Street1'], 'address2' => ['address2', 'Address2', 'street2', 'Street2'],
+            'postal_code' => ['postal_code', 'zip', 'Zip', 'zipcode', 'postalCode', 'PostalCode'], 'city' => ['city', 'City'],
+            'state' => ['state', 'State', 'province', 'Province', 'region', 'Region'], 'country' => ['country', 'Country', 'country_code', 'countryCode', 'CountryIso', 'CountryISO'],
+            'email' => ['email', 'Email', 'mail', 'Mail', 'EmailAddress'], 'phone' => ['phone', 'Phone', 'telephone', 'Telephone', 'PhoneNumber', 'MobilePhoneNumber'],
+        ];
+        foreach ($aliases[$key] ?? [$key] as $alias) {
+            if (is_scalar($address[$alias] ?? null) && trim((string) $address[$alias]) !== '') return trim((string) $address[$alias]);
+        }
+        if ($key === 'name') {
+            $first = $address['first_name'] ?? $address['firstName'] ?? $address['FirstName'] ?? '';
+            $last = $address['last_name'] ?? $address['lastName'] ?? $address['LastName'] ?? '';
+            return trim((string) $first . ' ' . (string) $last);
+        }
+        return '';
+    }
+
     /**
      * @param array<int, array<string, mixed>> $jtlOrders
      * @param array<int, array<string, mixed>> $jtlWorkerSyncs
@@ -1349,6 +1598,9 @@ final class DashboardController
                                             <?php endif; ?>
                                         </td>
                                         <td>
+                                            <?php if (($order['reference'] ?? '') !== ''): ?>
+                                                <a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $order['reference'], 'jtl_customer' => $customerFilter, 'jtl_mapped_customer' => $mappedCustomerFilter])) ?>">Ver detalles</a>
+                                            <?php endif; ?>
                                             <?php if (($order['sync_state'] ?? '') === 'confirmed'): ?>
                                                 <span class="status synced">confirmada</span>
                                                 <div class="muted">Packiyo #<?= $this->e($order['packiyo_order_id'] ?? '-') ?></div>
@@ -1361,6 +1613,9 @@ final class DashboardController
                                             <?php elseif (($order['sync_state'] ?? '') === 'unknown'): ?>
                                                 <span class="status missing_config">sin_verificar</span>
                                                 <div class="muted"><?= $this->e($order['sync_message'] ?? 'No se pudo verificar Packiyo') ?></div>
+                                            <?php elseif (!empty($order['review_required'])): ?>
+                                                <span class="status missing_config">requiere_revision</span>
+                                                <div class="muted">Corrige los articulos antes de enviar</div>
                                             <?php elseif (!empty($order['mapped'])): ?>
                                                 <span class="status ready">lista</span>
                                             <?php else: ?>
@@ -1528,7 +1783,11 @@ final class DashboardController
         array $productSkuAliasRows,
         array $productSkuAliasProducts,
         ?string $productSkuAliasError,
-        string $selectedSkuAliasCustomerId
+        string $selectedSkuAliasCustomerId,
+        string $selectedNameCustomerId,
+        array $productNameMappings,
+        array $productNameCatalog,
+        ?string $productNameCatalogError
     ): string {
         ob_start();
         ?>
@@ -1595,6 +1854,57 @@ final class DashboardController
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                    <?php endif; ?>
+                </div>
+            </section>
+
+            <section>
+                <div class="section-head"><h2>Equivalencias de nombres BOL → Packiyo</h2></div>
+                <div class="section-body">
+                    <form class="sku-alias-filter-form" action="<?= $this->e($this->url('/')) ?>" method="get">
+                        <input type="hidden" name="tab" value="customer-mappings">
+                        <select name="name_customer_id" required>
+                            <option value="">Cliente Packiyo</option>
+                            <?php foreach ($activeCustomers as $customer): ?>
+                                <?php $customerId = (string) ($customer['packiyo_customer_id'] ?? ''); ?>
+                                <option value="<?= $this->e($customerId) ?>" <?= $customerId === $selectedNameCustomerId ? 'selected' : '' ?>><?= $this->e($this->customerDisplayName($customer) . ' #' . $customerId) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button class="button" type="submit">Cargar catalogo</button>
+                    </form>
+                    <?php if ($selectedNameCustomerId === ''): ?>
+                        <div class="empty">Selecciona un cliente para administrar nombres BOL y sus productos Packiyo.</div>
+                    <?php elseif ($productNameCatalogError !== null): ?>
+                        <div class="empty">No se pudo cargar el catalogo: <?= $this->e($productNameCatalogError) ?></div>
+                    <?php else: ?>
+                        <form class="mapping-form" action="<?= $this->e($this->url('/packiyo/product-name-mappings')) ?>" method="post">
+                            <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedNameCustomerId) ?>">
+                            <input name="source_name" placeholder="Nombre original BOL" required style="grid-column:span 2">
+                            <input list="name-mapping-product-options" name="packiyo_sku" placeholder="SKU Packiyo" required style="grid-column:span 2">
+                            <button class="button" type="submit">Guardar equivalencia</button>
+                        </form>
+                        <datalist id="name-mapping-product-options">
+                            <?php foreach ($productNameCatalog as $product): ?>
+                                <option value="<?= $this->e($product['sku']) ?>" label="<?= $this->e($product['name']) ?>"></option>
+                            <?php endforeach; ?>
+                        </datalist>
+                        <?php if ($productNameMappings === []): ?>
+                            <div class="empty">Todavia no hay equivalencias guardadas.</div>
+                        <?php else: ?>
+                            <table>
+                                <thead><tr><th>Nombre BOL</th><th>Producto Packiyo</th><th>SKU</th><th></th></tr></thead>
+                                <tbody>
+                                    <?php foreach ($productNameMappings as $nameMapping): ?>
+                                        <tr>
+                                            <td><?= $this->e($nameMapping['source_name']) ?></td>
+                                            <td><?= $this->e(($nameMapping['packiyo_product_name'] ?? '') ?: '-') ?></td>
+                                            <td><strong><?= $this->e($nameMapping['packiyo_sku']) ?></strong></td>
+                                            <td><form class="inline-form" action="<?= $this->e($this->url('/packiyo/product-name-mappings/delete')) ?>" method="post"><input type="hidden" name="id" value="<?= $this->e($nameMapping['id']) ?>"><input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedNameCustomerId) ?>"><button class="button secondary small" type="submit">Eliminar</button></form></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
             </section>
@@ -1959,6 +2269,7 @@ final class DashboardController
                                 <th>Packiyo Order</th>
                                 <th>Fecha</th>
                                 <th>Estado</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1968,6 +2279,7 @@ final class DashboardController
                                     <td><?= $this->e($mapping['packiyo_order_number'] ?: $mapping['packiyo_order_id']) ?></td>
                                     <td><?= $this->e($mapping['synced_at']) ?></td>
                                     <td>synced</td>
+                                    <td><a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $mapping['jtl_order_id']])) ?>">Ver detalles</a></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -2419,6 +2731,12 @@ final class DashboardController
         $mapper = new MappingService($orderMappings);
         $resolver = new PackiyoCustomerResolver($customerMappings);
         $rows = [];
+        $orderIds = [];
+        foreach ($orders as $candidateOrder) {
+            $candidateId = $mapper->jtlOrderId($candidateOrder);
+            if ($candidateId !== null) $orderIds[] = $candidateId;
+        }
+        $skipReasons = (new AutomationOrderSkip())->findReasonsForOrderIds($orderIds);
 
         foreach ($orders as $order) {
             $id = $mapper->jtlOrderId($order);
@@ -2448,6 +2766,7 @@ final class DashboardController
                 'packiyo_order_number' => $orderMapping['packiyo_order_number'] ?? '',
                 'sync_state' => $syncState['state'],
                 'sync_message' => $syncState['message'],
+                'review_required' => ($skipReasons[$id ?? ''] ?? '') === 'requires_review',
                 'candidate_summary' => $resolver->describeCandidates($order),
             ];
         }

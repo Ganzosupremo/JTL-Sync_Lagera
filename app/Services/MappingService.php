@@ -265,6 +265,7 @@ final class MappingService
     private function normalizeAddress(array $address): array
     {
         return [
+            'name' => $this->firstString($address, ['name', 'Name', 'full_name', 'fullName', 'FullName']),
             'first_name' => $this->firstString($address, ['first_name', 'firstName', 'firstname', 'FirstName']),
             'last_name' => $this->firstString($address, ['last_name', 'lastName', 'lastname', 'LastName']),
             'company' => $this->firstString($address, ['company', 'Company', 'companyName', 'CompanyName']),
@@ -398,7 +399,7 @@ final class MappingService
     private function packiyoContact(array $address, array $customer): array
     {
         $normalized = $this->normalizeAddress($address);
-        $name = trim((string) (($customer['name'] ?? '') ?: $this->fullName($normalized)));
+        $name = trim((string) (($normalized['name'] ?? '') ?: ($customer['name'] ?? '') ?: $this->fullName($normalized)));
 
         return [
             'name' => $name !== '' ? $name : 'Unknown',

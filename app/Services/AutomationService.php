@@ -132,12 +132,13 @@ final class AutomationService
         $summary['failed'] = $this->failureCount($summary);
         $summary['finished_at'] = date('Y-m-d H:i:s');
         $summary['message'] = sprintf(
-            'Automation finished. order_created=%d order_linked=%d order_skipped=%d already_synced=%d unmapped=%d previously_ignored=%d jtl_unreachable=%d order_failed=%d fulfillment_failed=%d.',
+            'Automation finished. order_created=%d order_linked=%d order_skipped=%d already_synced=%d unmapped=%d requires_review=%d previously_ignored=%d jtl_unreachable=%d order_failed=%d fulfillment_failed=%d.',
             (int) ($summary['orders']['created'] ?? 0),
             (int) ($summary['orders']['linked'] ?? 0),
             (int) ($summary['orders']['skipped'] ?? 0),
             (int) ($summary['orders']['already_synced'] ?? 0),
             (int) ($summary['orders']['unmapped'] ?? 0),
+            (int) ($summary['orders']['requires_review'] ?? 0),
             (int) ($summary['orders']['previously_ignored'] ?? 0),
             (bool) ($summary['orders']['jtl_unreachable'] ?? false) ? 1 : 0,
             (int) ($summary['orders']['failed'] ?? 0),

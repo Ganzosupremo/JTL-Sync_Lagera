@@ -51,6 +51,43 @@ final class Database
         self::ensureOrderMappingColumns($db);
 
         $db->query(
+            "CREATE TABLE IF NOT EXISTS jtl_order_drafts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                jtl_order_id VARCHAR(100) NOT NULL,
+                jtl_order_number VARCHAR(100) NULL,
+                packiyo_customer_id VARCHAR(100) NULL,
+                status VARCHAR(30) NOT NULL DEFAULT 'draft',
+                source_json JSON NULL,
+                data_json JSON NOT NULL,
+                sent_payload_json JSON NULL,
+                sent_at DATETIME NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                UNIQUE KEY jtl_order_drafts_order_unique (jtl_order_id),
+                KEY jtl_order_drafts_status_index (status),
+                KEY jtl_order_drafts_customer_index (packiyo_customer_id)
+            )"
+        );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS packiyo_product_name_mappings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                packiyo_customer_id VARCHAR(100) NOT NULL,
+                source_name VARCHAR(500) NOT NULL,
+                normalized_source_name VARCHAR(500) NOT NULL,
+                packiyo_product_id VARCHAR(100) NULL,
+                packiyo_sku VARCHAR(150) NOT NULL,
+                packiyo_product_name VARCHAR(500) NULL,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                UNIQUE KEY packiyo_product_name_customer_source_unique (packiyo_customer_id, normalized_source_name),
+                KEY packiyo_product_name_sku_index (packiyo_customer_id, packiyo_sku),
+                KEY packiyo_product_name_active_index (active)
+            )"
+        );
+
+        $db->query(
             "CREATE TABLE IF NOT EXISTS automation_order_skips (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 jtl_order_id VARCHAR(100) NOT NULL,

@@ -139,6 +139,20 @@ inventories.read,inventories.write,stock.querystocksperitem,stock.stockadjustmen
 
 JTL no guarda stock dentro de `POST /items`. La app crea/relaciona articulos y, si hay `JTL warehouse ID`, ajusta stock con `POST /stocks` usando `quantity_on_hand` de Packiyo. Para evitar duplicados, primero lee el stock actual de JTL y manda solo la diferencia. Si un producto ya aparece como `importado`, puedes seleccionarlo otra vez para actualizar solo su stock.
 
+## Revision y correccion de ordenes
+
+La pestaña `Ordenes JTL` permite abrir `Ver detalles` antes de enviar una orden. Desde ahi se pueden corregir las direcciones, cambiar nombre/SKU/cantidad/precio de los articulos y agregar o quitar lineas. Los cambios se guardan localmente y no modifican la orden original en JTL.
+
+Una linea sin SKU, o con un SKU provisional `JTL-LINE-...`, bloquea solamente esa orden. La automatizacion continua procesando las demas y reporta la orden como `requires_review`. Al guardar la correccion, la orden vuelve a ser elegible para la siguiente corrida.
+
+La app intenta resolver una linea problematica en este orden:
+
+1. Equivalencia de nombre BOL confirmada para el cliente Packiyo.
+2. Coincidencia de alta confianza contra los nombres del catalogo Packiyo, considerando tokens compartidos, marcas, modelos y unidades.
+3. Seleccion manual desde el detalle de la orden.
+
+En `Mapeos -> Equivalencias de nombres BOL -> Packiyo` se pueden crear y eliminar reglas permanentes por cliente. Al corregir una linea desde una orden, `Recordar nombre BOL` guarda la misma regla automaticamente.
+
 ## Automatizacion
 
 La automatizacion completa ejecuta:
@@ -230,6 +244,8 @@ Cron antiguo, solo ordenes JTL -> Packiyo:
 - `POST /automation/manual` fuerza el ciclo completo desde el dashboard protegido por login.
 - `POST /sync` ejecuta sincronizacion manual.
 - `POST /sync/order` sincroniza una sola orden JTL por ID interno o numero de orden.
+- `POST /jtl/orders/draft` guarda la correccion local de una orden y opcionalmente la envia.
+- `POST /jtl/orders/draft/reset` descarta un borrador no enviado.
 - `POST /jtl/register` inicia el registro de la app en JTL-Wawi.
 - `POST /jtl/register/complete` recupera y guarda el API token.
 - `POST /jtl/order-sources/detect` detecta tiendas/canales presentes en las ordenes JTL actuales.
@@ -238,6 +254,8 @@ Cron antiguo, solo ordenes JTL -> Packiyo:
 - `POST /packiyo/customers/deactivate` desactiva un cliente cacheado.
 - `POST /packiyo/customer-mappings` guarda un mapeo JTL -> Packiyo customer.
 - `POST /packiyo/customer-mappings/delete` elimina un mapeo.
+- `POST /packiyo/product-name-mappings` guarda una equivalencia nombre BOL -> producto Packiyo.
+- `POST /packiyo/product-name-mappings/delete` elimina una equivalencia de nombre.
 - `POST /products/import` importa productos seleccionados de Packiyo a JTL.
 - `POST /settings` guarda ajustes de `.env` desde la tab Ajustes.
 - `POST /users/invite` crea invitaciones de usuario.

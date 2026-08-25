@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Clients\JtlClient;
 use App\Clients\PackiyoClient;
 use App\Models\AutomationOrderSkip;
+use App\Models\OrderDraft;
 use App\Models\PackiyoCustomerMapping;
 use App\Support\HttpException;
 use App\Support\Logger;
@@ -20,11 +21,13 @@ final class OrderSyncService
         private readonly ?PackiyoClient $packiyo = null,
         private readonly ?MappingService $mapping = null,
         private readonly ?AutomationOrderSkip $automationSkips = null,
-        private readonly ?Logger $logger = null
+        private readonly ?Logger $logger = null,
+        private readonly ?OrderDraft $drafts = null,
+        private readonly ?OrderPreparationService $preparation = null
     ) {
     }
 
-    /** @return array{total: int, jtl_returned: int, created: int, linked: int, skipped: int, failed: int, already_synced: int, unmapped: int, previously_ignored: int, jtl_unreachable: bool, message: string} */
+    /** @return array{total: int, jtl_returned: int, created: int, linked: int, skipped: int, failed: int, already_synced: int, unmapped: int, requires_review: int, previously_ignored: int, jtl_unreachable: bool, message: string} */
     public function sync(?string $customerFilter = null, ?string $mappedCustomerFilter = null, bool $useAutomationSkipCache = false): array
     {
         $summary = [
@@ -36,6 +39,7 @@ final class OrderSyncService
             'failed' => 0,
             'already_synced' => 0,
             'unmapped' => 0,
+            'requires_review' => 0,
             'previously_ignored' => 0,
             'jtl_unreachable' => false,
             'message' => '',
@@ -96,6 +100,11 @@ final class OrderSyncService
             } catch (InactivePackiyoCustomerException $exception) {
                 $summary['skipped']++;
                 $this->log()->info('order_sync', $exception->getMessage());
+            } catch (OrderRequiresReviewException $exception) {
+                $summary['skipped']++;
+                $summary['requires_review']++;
+                $this->rememberAutomationSkip($order, 'requires_review');
+                $this->log()->warning('order_review', $exception->getMessage());
             } catch (Throwable $exception) {
                 $summary['failed']++;
                 $this->log()->error('order_sync', $exception->getMessage());
@@ -105,7 +114,7 @@ final class OrderSyncService
         $this->log()->info(
             'order_sync',
             $summary['message'] = sprintf(
-                'Order sync finished. jtl_returned=%d total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d previously_ignored=%d',
+                'Order sync finished. jtl_returned=%d total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d requires_review=%d previously_ignored=%d',
                 $summary['jtl_returned'],
                 $summary['total'],
                 $summary['created'],
@@ -114,6 +123,7 @@ final class OrderSyncService
                 $summary['failed'],
                 $summary['already_synced'],
                 $summary['unmapped'],
+                $summary['requires_review'],
                 $summary['previously_ignored']
             )
         );
@@ -293,6 +303,13 @@ final class OrderSyncService
             $summary['skipped'] = 1;
             $summary['message'] = $exception->getMessage();
             $this->log()->info('order_sync', $exception->getMessage());
+        } catch (OrderRequiresReviewException $exception) {
+            $summary['skipped'] = 1;
+            $summary['message'] = $exception->getMessage();
+            if (isset($order) && is_array($order)) {
+                $this->rememberAutomationSkip($order, 'requires_review');
+            }
+            $this->log()->warning('order_review', $exception->getMessage());
         } catch (Throwable $exception) {
             $summary['failed'] = 1;
             $summary['message'] = 'No se pudo sincronizar la orden JTL ' . $reference . ': ' . $exception->getMessage();
@@ -322,7 +339,26 @@ final class OrderSyncService
             $this->log()->warning('order_sync', 'Forced resync requested for JTL order ' . $jtlOrderId . '. Existing local mapping will be replaced after Packiyo accepts the order.');
         }
 
-        $items = $this->itemsFromOrder($order);
+        $sourceItems = $this->itemsFromOrder($order);
+        $mappedCustomer = $this->mappedPackiyoCustomer($order);
+        $customerId = is_array($mappedCustomer) ? trim((string) ($mappedCustomer['packiyo_customer_id'] ?? '')) : '';
+        $draft = $this->draftModel()->find($jtlOrderId);
+        $preparedData = is_array($draft['data'] ?? null)
+            ? $draft['data']
+            : $this->preparedData($order, $sourceItems, $customerId);
+        if (!array_key_exists('shipping', $preparedData)) {
+            $preparedData['shipping'] = $this->preparationService()->shippingAmount($sourceItems);
+        }
+        $items = is_array($preparedData['items'] ?? null) ? array_values(array_filter($preparedData['items'], 'is_array')) : [];
+        $errors = $this->preparationService()->validationErrors($items);
+
+        if ($errors !== []) {
+            throw new OrderRequiresReviewException(
+                'La orden JTL ' . $this->orderLabel($order) . ' requiere revision: ' . implode(' ', $errors)
+            );
+        }
+
+        $orderForPayload = $this->applyPreparedData($order, $preparedData);
         $externalIdOverride = null;
         $numberOverride = null;
         $lineItemExternalIdSuffix = null;
@@ -346,13 +382,12 @@ final class OrderSyncService
         }
 
         $payload = $this->mapper()->toPackiyoPayload(
-            $order,
+            $orderForPayload,
             $items,
             $externalIdOverride,
             $numberOverride,
             $lineItemExternalIdSuffix
         );
-        $mappedCustomer = $this->mappedPackiyoCustomer($order);
         $packiyoOrder = $resendArchived ? null : $this->findExistingPackiyoOrder($payload, $order);
         $linkedExistingOrder = $packiyoOrder !== null;
 
@@ -396,6 +431,15 @@ final class OrderSyncService
             'packiyo_customer_name' => $mappedCustomer['packiyo_customer_name'] ?? null,
             'synced_at' => date('Y-m-d H:i:s'),
         ]);
+
+        $this->draftModel()->markSent(
+            $jtlOrderId,
+            $this->mapper()->jtlOrderNumber($order),
+            $customerId !== '' ? $customerId : null,
+            ['order' => $order, 'items' => $sourceItems],
+            $preparedData,
+            $payload
+        );
 
         if ($linkedExistingOrder) {
             $this->log()->info('order_sync', 'Linked existing Packiyo order ' . $packiyoOrderId . ' to JTL order ' . $jtlOrderId . '.');
@@ -740,6 +784,32 @@ final class OrderSyncService
         return [];
     }
 
+    /** @param array<string, mixed> $order @param array<int, array<string, mixed>> $items @return array<string, mixed> */
+    private function preparedData(array $order, array $items, string $customerId): array
+    {
+        return [
+            'shipping_address' => $this->firstArray($order, ['shipping_address', 'shippingAddress', 'ShippingAddress', 'deliveryAddress', 'DeliveryAddress', 'Shipmentaddress', 'ShipmentAddress', 'shipmentAddress']),
+            'billing_address' => $this->firstArray($order, ['billing_address', 'billingAddress', 'BillingAddress', 'invoiceAddress', 'InvoiceAddress']),
+            'items' => $this->preparationService()->prepareItems($items, $customerId !== '' ? $customerId : null),
+            'shipping' => $this->preparationService()->shippingAmount($items),
+        ];
+    }
+
+    /** @param array<string, mixed> $order @param array<string, mixed> $data @return array<string, mixed> */
+    private function applyPreparedData(array $order, array $data): array
+    {
+        if (is_array($data['shipping_address'] ?? null)) {
+            $order['shipping_address'] = $data['shipping_address'];
+        }
+        if (is_array($data['billing_address'] ?? null)) {
+            $order['billing_address'] = $data['billing_address'];
+        }
+        if (is_numeric($data['shipping'] ?? null)) {
+            $order['shipping'] = (float) $data['shipping'];
+        }
+        return $order;
+    }
+
     private function jtlClient(): JtlClient
     {
         return $this->jtl ?? new JtlClient();
@@ -760,6 +830,16 @@ final class OrderSyncService
         return $this->automationSkips ?? new AutomationOrderSkip();
     }
 
+    private function draftModel(): OrderDraft
+    {
+        return $this->drafts ?? new OrderDraft();
+    }
+
+    private function preparationService(): OrderPreparationService
+    {
+        return $this->preparation ?? new OrderPreparationService();
+    }
+
     private function log(): Logger
     {
         return $this->logger ?? new Logger();
@@ -767,5 +847,9 @@ final class OrderSyncService
 }
 
 final class OrderAlreadySyncedException extends RuntimeException
+{
+}
+
+final class OrderRequiresReviewException extends RuntimeException
 {
 }
