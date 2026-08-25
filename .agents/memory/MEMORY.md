@@ -1,0 +1,1 @@
+- [Dashboard remote verification](dashboard-remote-verification.md) — Keep list pages local-first; verify external order state only on explicit demand.

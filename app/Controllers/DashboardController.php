@@ -27,7 +27,6 @@ use App\Services\ProductImportService;
 use App\Services\ProductSkuAliasService;
 use App\Support\Auth;
 use App\Support\Config;
-use App\Support\Database;
 use App\Support\HttpException;
 use App\Support\JtlScopeList;
 use App\Support\Setting;
@@ -37,8 +36,6 @@ final class DashboardController
 {
     public function index(): void
     {
-        Database::migrate();
-
         $mappings = new OrderMapping();
         $logs = new SyncLog();
         $credentials = new JtlApiCredential();
@@ -47,7 +44,7 @@ final class DashboardController
         $packiyoCustomers = new PackiyoCustomer();
         $fulfillmentSyncs = new FulfillmentSync();
         $syncStates = new AppSyncState();
-        $jtl = new JtlClient();
+        $jtl = new JtlClient(timeout: 10);
         $packiyo = new PackiyoClient();
         $registration = $credentials->latest();
         $tab = $this->activeTab($_GET['tab'] ?? 'overview');
@@ -70,6 +67,9 @@ final class DashboardController
         $selectedNameCustomerId = is_scalar($_GET['name_customer_id'] ?? null) ? trim((string) $_GET['name_customer_id']) : '';
         $jtlOrderCustomerFilter = is_scalar($_GET['jtl_customer'] ?? null) ? trim((string) $_GET['jtl_customer']) : '';
         $jtlOrderMappedCustomerFilter = is_scalar($_GET['jtl_mapped_customer'] ?? null) ? trim((string) $_GET['jtl_mapped_customer']) : '';
+        $verifyPackiyoOrderReference = is_scalar($_GET['verify_packiyo_order'] ?? null)
+            ? trim((string) $_GET['verify_packiyo_order'])
+            : '';
         $fulfillmentCustomerId = is_scalar($_GET['fulfillment_customer_id'] ?? null) ? trim((string) $_GET['fulfillment_customer_id']) : '';
         $selectedProductCustomerId = is_scalar($_GET['customer_id'] ?? null) ? (string) $_GET['customer_id'] : '';
         $selectedSkuAliasCustomerId = is_scalar($_GET['sku_customer_id'] ?? null) ? (string) $_GET['sku_customer_id'] : '';
@@ -108,7 +108,13 @@ final class DashboardController
 
             try {
                 $jtlOrders = $this->filterJtlOrderRows(
-                    $this->jtlOrderRows($jtl->getOrders(), $customerMappings, $mappings, $packiyo),
+                    $this->jtlOrderRows(
+                        $jtl->getOrders(),
+                        $customerMappings,
+                        $mappings,
+                        $packiyo,
+                        $verifyPackiyoOrderReference
+                    ),
                     $jtlOrderCustomerFilter,
                     $jtlOrderMappedCustomerFilter
                 );
@@ -1610,6 +1616,9 @@ final class DashboardController
                                             <?php elseif (($order['sync_state'] ?? '') === 'local_only'): ?>
                                                 <span class="status missing_config">solo_local</span>
                                                 <div class="muted">Packiyo #<?= $this->e($order['packiyo_order_id'] ?? '-') ?> no existe</div>
+                                            <?php elseif (($order['sync_state'] ?? '') === 'local_mapping'): ?>
+                                                <span class="status ready">enviada_local</span>
+                                                <div class="muted">Packiyo #<?= $this->e($order['packiyo_order_id'] ?? '-') ?> pendiente de verificacion</div>
                                             <?php elseif (($order['sync_state'] ?? '') === 'unknown'): ?>
                                                 <span class="status missing_config">sin_verificar</span>
                                                 <div class="muted"><?= $this->e($order['sync_message'] ?? 'No se pudo verificar Packiyo') ?></div>
@@ -1640,6 +1649,13 @@ final class DashboardController
                                                     <input type="hidden" name="force_resync" value="1">
                                                     <button class="button small" type="submit">Reenviar</button>
                                                 </form>
+                                            <?php elseif (($order['sync_state'] ?? '') === 'local_mapping' && ($order['reference'] ?? '') !== ''): ?>
+                                                <a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query([
+                                                    'tab' => 'jtl-orders',
+                                                    'verify_packiyo_order' => $order['reference'],
+                                                    'jtl_customer' => $customerFilter,
+                                                    'jtl_mapped_customer' => $mappedCustomerFilter,
+                                                ])) ?>">Verificar Packiyo</a>
                                             <?php elseif (empty($order['mapped'])): ?>
                                                 <span class="muted">Mapear primero</span>
                                             <?php elseif (($order['sync_state'] ?? '') === 'unknown'): ?>
@@ -2725,7 +2741,8 @@ final class DashboardController
         array $orders,
         PackiyoCustomerMapping $customerMappings,
         OrderMapping $orderMappings,
-        PackiyoClient $packiyo
+        PackiyoClient $packiyo,
+        string $verifyPackiyoOrderReference = ''
     ): array
     {
         $mapper = new MappingService($orderMappings);
@@ -2737,16 +2754,20 @@ final class DashboardController
             if ($candidateId !== null) $orderIds[] = $candidateId;
         }
         $skipReasons = (new AutomationOrderSkip())->findReasonsForOrderIds($orderIds);
+        $customerMappingRows = $customerMappings->all();
+        $orderMappingsByJtlOrderId = $orderMappings->findByJtlOrderIds($orderIds);
 
         foreach ($orders as $order) {
             $id = $mapper->jtlOrderId($order);
             $number = $mapper->jtlOrderNumber($order);
             $marketplaceNumber = $mapper->marketplaceOrderNumber($order);
             $candidates = $resolver->candidates($order);
-            $mapping = $customerMappings->findForCandidates($candidates);
+            $mapping = $customerMappings->findForCandidatesIn($customerMappingRows, $candidates);
             $source = $this->primaryOrderSource($candidates);
-            $orderMapping = $id !== null ? $orderMappings->findByJtlOrderId($id) : null;
-            $syncState = $this->packiyoSyncState($orderMapping, $packiyo, $id);
+            $orderMapping = $id !== null ? ($orderMappingsByJtlOrderId[$id] ?? null) : null;
+            $shouldVerifyPackiyo = $verifyPackiyoOrderReference !== ''
+                && in_array($verifyPackiyoOrderReference, array_filter([$id, $number]), true);
+            $syncState = $this->packiyoSyncState($orderMapping, $packiyo, $id, $shouldVerifyPackiyo);
 
             $rows[] = [
                 'id' => $id ?? '',
@@ -2815,7 +2836,12 @@ final class DashboardController
      * @param array<string, mixed>|null $orderMapping
      * @return array{state: string, message: string}
      */
-    private function packiyoSyncState(?array $orderMapping, PackiyoClient $packiyo, ?string $jtlOrderId): array
+    private function packiyoSyncState(
+        ?array $orderMapping,
+        PackiyoClient $packiyo,
+        ?string $jtlOrderId,
+        bool $verifyRemotely = false
+    ): array
     {
         if ($orderMapping === null) {
             return ['state' => 'not_synced', 'message' => ''];
@@ -2825,6 +2851,13 @@ final class DashboardController
 
         if ($packiyoOrderId === '') {
             return ['state' => 'local_only', 'message' => 'El mapeo local no tiene Packiyo order ID.'];
+        }
+
+        if (!$verifyRemotely) {
+            return [
+                'state' => 'local_mapping',
+                'message' => 'La orden se envio anteriormente; verifica Packiyo solo si necesitas confirmarla.',
+            ];
         }
 
         try {

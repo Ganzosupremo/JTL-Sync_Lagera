@@ -81,7 +81,17 @@ final class PackiyoCustomerMapping
      */
     public function findForCandidates(array $candidates): ?array
     {
-        foreach ($this->all() as $mapping) {
+        return $this->findForCandidatesIn($this->all(), $candidates);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $mappings
+     * @param array<string, array<int, string>> $candidates
+     * @return array<string, mixed>|null
+     */
+    public function findForCandidatesIn(array $mappings, array $candidates): ?array
+    {
+        foreach ($mappings as $mapping) {
             if ((int) ($mapping['active'] ?? 0) !== 1) {
                 continue;
             }
