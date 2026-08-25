@@ -23,9 +23,13 @@ final class ProductNameMappingController
             if ($customerId === '' || $source === '' || $sku === '') {
                 throw new \RuntimeException('Cliente, nombre BOL y SKU Packiyo son requeridos.');
             }
+            $preparation = new OrderPreparationService();
             $product = null;
-            foreach ((new OrderPreparationService())->catalog($customerId) as $candidate) {
+            foreach ($preparation->catalog($customerId) as $candidate) {
                 if ($candidate['sku'] === $sku) { $product = $candidate; break; }
+            }
+            if ($product === null || $preparation->isProvisionalSku($sku)) {
+                throw new \RuntimeException('Selecciona un producto valido del catalogo Packiyo.');
             }
             (new ProductNameMapping())->upsert([
                 'packiyo_customer_id' => $customerId,

@@ -285,8 +285,15 @@ final class MappingService
     {
         $name = $this->firstString($item, ['name', 'Name', 'title', 'Title', 'description', 'Description', 'cName', 'CName']);
         $sku = $this->firstString($item, ['sku', 'SKU', 'articleNumber', 'ArticleNumber', 'itemNumber', 'ItemNumber', 'cArtNr', 'CArtNr'])
-            ?? ('JTL-LINE-' . (string) ($this->firstValue($item, ['id', 'Id']) ?? uniqid('', false)));
+            ?? '';
         $resolvedSku = $this->resolvePackiyoSku($packiyoCustomerId, $sku);
+
+        if ($this->isProvisionalSku($resolvedSku)) {
+            throw new RuntimeException(
+                'JTL item "' . ($name ?: 'sin nombre') . '" has no valid Packiyo SKU. '
+                . 'Choose a Packiyo product and save the name mapping before sending the order.'
+            );
+        }
 
         return [
             'sku' => $resolvedSku,
@@ -347,6 +354,12 @@ final class MappingService
         }
 
         return $this->skuAliasModel()->resolve($packiyoCustomerId, $sku) ?? $sku;
+    }
+
+    private function isProvisionalSku(string $sku): bool
+    {
+        $sku = trim($sku);
+        return $sku === '' || preg_match('/^JTL-LINE(?:-|$)/i', $sku) === 1;
     }
 
     /**

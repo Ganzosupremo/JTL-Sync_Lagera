@@ -53,12 +53,10 @@ final class OrderPreparationService
                 $saved = $this->mappingModel()->find($customerId, $normalized);
 
                 if ($saved !== null) {
-                    $row['sku'] = (string) $saved['packiyo_sku'];
-                    $row['name'] = (string) (($saved['packiyo_product_name'] ?? '') ?: $name);
-                    $row['packiyo_product_id'] = (string) ($saved['packiyo_product_id'] ?? '');
-                    $row['resolution'] = 'saved_name';
-                    $row['score'] = 1.0;
-                } else {
+                    $row = $this->applySavedNameMapping($row, $saved);
+                }
+
+                if ($row['resolution'] === 'unresolved') {
                     try {
                         $matches = $this->matchCandidates($name, $this->catalog($customerId, $allowRemoteCatalog));
                         $row['suggestions'] = array_slice($matches, 0, 5);
@@ -82,6 +80,32 @@ final class OrderPreparationService
         }
 
         return $prepared;
+    }
+
+    /**
+     * Applies a confirmed customer-specific JTL-name to Packiyo-product mapping.
+     *
+     * @param array<string, mixed> $item
+     * @param array<string, mixed>|null $mapping
+     * @return array<string, mixed>
+     */
+    public function applySavedNameMapping(array $item, ?array $mapping): array
+    {
+        $sourceSku = trim((string) ($item['sku'] ?? ''));
+        $mappedSku = trim((string) ($mapping['packiyo_sku'] ?? ''));
+
+        if ($mapping === null || !$this->isProvisionalSku($sourceSku) || $this->isProvisionalSku($mappedSku)) {
+            return $item;
+        }
+
+        $sourceName = trim((string) ($item['source_name'] ?? $item['name'] ?? ''));
+        $item['sku'] = $mappedSku;
+        $item['name'] = trim((string) (($mapping['packiyo_product_name'] ?? '') ?: $sourceName));
+        $item['packiyo_product_id'] = trim((string) ($mapping['packiyo_product_id'] ?? ''));
+        $item['resolution'] = 'saved_name';
+        $item['score'] = 1.0;
+
+        return $item;
     }
 
     /** @param array<int, array<string, mixed>> $items @return array<int, string> */
