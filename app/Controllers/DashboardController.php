@@ -732,6 +732,44 @@ final class DashboardController
             z-index: 1;
         }
 
+        .sortable-table th {
+            white-space: nowrap;
+        }
+
+        .table-sort {
+            align-items: center;
+            background: transparent;
+            border: 0;
+            color: inherit;
+            cursor: pointer;
+            display: inline-flex;
+            font: inherit;
+            gap: 6px;
+            justify-content: flex-start;
+            letter-spacing: inherit;
+            min-height: 0;
+            padding: 0;
+            text-align: left;
+            text-transform: inherit;
+            width: auto;
+        }
+
+        .table-sort:hover {
+            color: var(--accent);
+        }
+
+        .table-sort:focus-visible {
+            border-radius: 4px;
+            outline: 2px solid var(--accent);
+            outline-offset: 3px;
+        }
+
+        .sort-indicator {
+            color: var(--accent);
+            font-size: 14px;
+            line-height: 1;
+        }
+
         .sku-alias-saved-scroll {
             max-height: min(360px, 42vh);
         }
@@ -892,6 +930,11 @@ final class DashboardController
                 display: block;
                 overflow-x: auto;
             }
+
+            .scroll-table > table {
+                display: table;
+                overflow: visible;
+            }
         }
     </style>
 </head>
@@ -1015,6 +1058,69 @@ final class DashboardController
             <?php endif; ?>
         </div>
     </main>
+    <script>
+        (() => {
+            const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+            const sortableValue = (cell, type) => {
+                const raw = (cell?.dataset.sortValue ?? cell?.textContent ?? '').trim();
+                if (type !== 'date') {
+                    return { empty: raw === '', value: raw };
+                }
+
+                const timestamp = Date.parse(raw);
+                return {
+                    empty: raw === '' || Number.isNaN(timestamp),
+                    value: Number.isNaN(timestamp) ? raw : timestamp,
+                };
+            };
+
+            document.querySelectorAll('[data-sort-table]').forEach((table) => {
+                const body = table.tBodies[0];
+                if (!body) return;
+
+                let activeKey = null;
+                let direction = 1;
+
+                table.querySelectorAll('.table-sort').forEach((button) => {
+                    const header = button.closest('th');
+                    if (header) header.setAttribute('aria-sort', 'none');
+                    button.removeAttribute('aria-sort');
+
+                    button.addEventListener('click', () => {
+                        const key = button.dataset.sortKey || '';
+                        direction = activeKey === key ? direction * -1 : 1;
+                        activeKey = key;
+
+                        table.querySelectorAll('.table-sort').forEach((other) => {
+                            const active = other === button;
+                            const indicator = other.querySelector('.sort-indicator');
+                            const header = other.closest('th');
+                            if (header) {
+                                header.setAttribute('aria-sort', active ? (direction === 1 ? 'ascending' : 'descending') : 'none');
+                            }
+                            if (indicator) indicator.textContent = active ? (direction === 1 ? '↑' : '↓') : '↕';
+                        });
+
+                        const type = button.dataset.sortType || 'text';
+                        const columnIndex = button.parentElement.cellIndex;
+                        const rows = Array.from(body.rows).map((row, index) => ({ row, index }));
+                        rows.sort((left, right) => {
+                            const leftValue = sortableValue(left.row.cells[columnIndex], type);
+                            const rightValue = sortableValue(right.row.cells[columnIndex], type);
+                            if (leftValue.empty !== rightValue.empty) return leftValue.empty ? 1 : -1;
+
+                            const comparison = type === 'date'
+                                ? (leftValue.value < rightValue.value ? -1 : (leftValue.value > rightValue.value ? 1 : 0))
+                                : collator.compare(leftValue.value, rightValue.value);
+                            return comparison === 0 ? left.index - right.index : comparison * direction;
+                        });
+                        rows.forEach(({ row }) => body.appendChild(row));
+                    });
+                });
+            });
+        })();
+    </script>
 </body>
 </html>
         <?php
@@ -1585,37 +1691,38 @@ final class DashboardController
                     <?php elseif ($jtlOrders === []): ?>
                         <div class="empty"><?= $filtersActive ? 'Sin ordenes nuevas de JTL para estos filtros.' : 'Sin ordenes nuevas de JTL.' ?></div>
                     <?php else: ?>
-                        <table>
+                        <div class="scroll-table order-table-scroll">
+                        <table class="sortable-table" data-sort-table="jtl-orders">
                             <thead>
                                 <tr>
-                                    <th>Orden JTL</th>
-                                    <th>Fecha</th>
-                                    <th>Cliente orden</th>
-                                    <th>Canal JTL</th>
-                                    <th>Cliente Packiyo</th>
-                                    <th>Estado</th>
-                                    <th>Accion</th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="order" data-sort-type="text" aria-label="Ordenar por orden JTL">Orden JTL <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="date" data-sort-type="date" aria-label="Ordenar por fecha">Fecha <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="customer" data-sort-type="text" aria-label="Ordenar por cliente de la orden">Cliente orden <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="channel" data-sort-type="text" aria-label="Ordenar por canal JTL">Canal JTL <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="packiyo-customer" data-sort-type="text" aria-label="Ordenar por cliente Packiyo">Cliente Packiyo <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="status" data-sort-type="text" aria-label="Ordenar por estado">Estado <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col">Accion</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php foreach ($jtlOrders as $order): ?>
                                     <tr>
-                                        <td>
+                                        <td data-sort-value="<?= $this->e(($order['number'] ?? '') ?: ($order['id'] ?? '')) ?>">
                                             <strong><?= $this->e(($order['number'] ?? '') ?: ($order['id'] ?? '-')) ?></strong>
                                             <div class="muted">ID <?= $this->e(($order['id'] ?? '') ?: '-') ?></div>
                                             <?php if (($order['marketplace_number'] ?? '') !== ''): ?>
                                                 <div class="muted">Marketplace <?= $this->e($order['marketplace_number']) ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td><?= $this->e($order['ordered_at'] ?? '-') ?></td>
-                                        <td><?= $this->e($order['contact'] ?? '-') ?></td>
-                                        <td>
+                                        <td data-sort-value="<?= $this->e($order['ordered_at'] ?? '') ?>"><?= $this->e($order['ordered_at'] ?? '-') ?></td>
+                                        <td data-sort-value="<?= $this->e($order['contact'] ?? '') ?>"><?= $this->e($order['contact'] ?? '-') ?></td>
+                                        <td data-sort-value="<?= $this->e($order['source'] ?? '') ?>">
                                             <strong><?= $this->e($order['source'] ?? '-') ?></strong>
                                             <?php if (($order['source_type'] ?? '') !== ''): ?>
                                                 <div class="muted"><?= $this->e($order['source_type']) ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td>
+                                        <td data-sort-value="<?= $this->e(!empty($order['mapped']) ? ($order['packiyo_customer'] ?? '') : 'sin_mapeo') ?>">
                                             <?php if (!empty($order['mapped'])): ?>
                                                 <?= $this->e($order['packiyo_customer'] ?? '-') ?>
                                             <?php else: ?>
@@ -1625,7 +1732,7 @@ final class DashboardController
                                                 <?php endif; ?>
                                             <?php endif; ?>
                                         </td>
-                                        <td>
+                                        <td data-sort-value="<?= $this->e($order['sync_state'] ?? '') ?>">
                                             <?php if (($order['reference'] ?? '') !== ''): ?>
                                                 <a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $order['reference'], 'jtl_customer' => $customerFilter, 'jtl_mapped_customer' => $mappedCustomerFilter])) ?>">Editar y mapear</a>
                                             <?php endif; ?>
@@ -1696,6 +1803,7 @@ final class DashboardController
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                        </div>
                     <?php endif; ?>
                 </div>
             </section>
@@ -1760,45 +1868,47 @@ final class DashboardController
                     <?php if ($rows === []): ?>
                         <div class="empty">Todavia no hay tracking enviado a JTL.</div>
                     <?php else: ?>
-                        <table>
+                        <div class="scroll-table order-table-scroll">
+                        <table class="sortable-table" data-sort-table="fulfillment">
                             <thead>
                                 <tr>
-                                    <th>Orden JTL</th>
-                                    <th>Packiyo</th>
-                                    <th>Tracking</th>
-                                    <th>Carrier</th>
-                                    <th>Delivery note</th>
-                                    <th>Estado</th>
-                                    <th>Fecha</th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="jtl-order" data-sort-type="text" aria-label="Ordenar por orden JTL">Orden JTL <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="packiyo-order" data-sort-type="text" aria-label="Ordenar por orden Packiyo">Packiyo <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="tracking" data-sort-type="text" aria-label="Ordenar por tracking">Tracking <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="carrier" data-sort-type="text" aria-label="Ordenar por transportista">Carrier <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="delivery-note" data-sort-type="text" aria-label="Ordenar por delivery note">Delivery note <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="status" data-sort-type="text" aria-label="Ordenar por estado">Estado <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+                                    <th scope="col" aria-sort="none"><button class="table-sort" type="button" data-sort-key="date" data-sort-type="date" aria-label="Ordenar por fecha">Fecha <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php foreach ($rows as $row): ?>
                                     <tr>
-                                        <td>
+                                        <td data-sort-value="<?= $this->e(($row['jtl_order_number'] ?? '') ?: ($row['jtl_order_id'] ?? '')) ?>">
                                             <strong><?= $this->e(($row['jtl_order_number'] ?? '') ?: ($row['jtl_order_id'] ?? '-')) ?></strong>
                                             <div class="muted">ID <?= $this->e($row['jtl_order_id'] ?? '-') ?></div>
                                         </td>
-                                        <td><?= $this->e($row['packiyo_order_id'] ?? '-') ?></td>
-                                        <td>
+                                        <td data-sort-value="<?= $this->e($row['packiyo_order_id'] ?? '') ?>"><?= $this->e($row['packiyo_order_id'] ?? '-') ?></td>
+                                        <td data-sort-value="<?= $this->e($row['tracking_number'] ?? '') ?>">
                                             <strong><?= $this->e($row['tracking_number'] ?? '-') ?></strong>
                                             <?php if (($row['tracking_url'] ?? '') !== ''): ?>
                                                 <div class="muted"><?= $this->e($row['tracking_url']) ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td><?= $this->e($row['carrier'] ?? '-') ?></td>
-                                        <td>
+                                        <td data-sort-value="<?= $this->e($row['carrier'] ?? '') ?>"><?= $this->e($row['carrier'] ?? '-') ?></td>
+                                        <td data-sort-value="<?= $this->e($row['jtl_delivery_note_id'] ?? '') ?>">
                                             <?= $this->e($row['jtl_delivery_note_id'] ?? '-') ?>
                                             <?php if (($row['jtl_package_id'] ?? '') !== ''): ?>
                                                 <div class="muted">Package <?= $this->e($row['jtl_package_id']) ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td><span class="status <?= (($row['status'] ?? '') === 'synced' || ($row['status'] ?? '') === 'already_present') ? 'synced' : 'missing_config' ?>"><?= $this->e($row['status'] ?? '-') ?></span></td>
-                                        <td><?= $this->e($row['synced_at'] ?? '-') ?></td>
+                                        <td data-sort-value="<?= $this->e($row['status'] ?? '') ?>"><span class="status <?= (($row['status'] ?? '') === 'synced' || ($row['status'] ?? '') === 'already_present') ? 'synced' : 'missing_config' ?>"><?= $this->e($row['status'] ?? '-') ?></span></td>
+                                        <td data-sort-value="<?= $this->e($row['synced_at'] ?? '') ?>"><?= $this->e($row['synced_at'] ?? '-') ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                        </div>
                     <?php endif; ?>
                 </div>
             </section>
