@@ -66,7 +66,6 @@ final class SettingsCatalog
                     self::number('JTL_DELIVERY_NOTE_WORKFLOW_EVENT_ID', 'Workflow Event ID para crear delivery note', ''),
                     self::text('JTL_SALES_ORDER_WORKFLOW_EVENTS_ENDPOINT', 'Sales order workflow events endpoint', '/api/eazybusiness/v1/salesOrders/workflowEvents'),
                     self::text('JTL_SALES_ORDER_WORKFLOW_TRIGGER_ENDPOINT', 'Sales order workflow trigger endpoint', '/api/eazybusiness/v1/salesOrders/{id}/workflowEvents'),
-                    self::text('JTL_SALES_ORDER_WORKFLOW_TRIGGER_BY_ID_ENDPOINT', 'Sales order workflow trigger by ID endpoint', '/api/eazybusiness/v1/salesOrders/{id}/workflow/{workflowEventId}'),
                     self::number('JTL_DELIVERY_NOTE_CREATE_RETRIES', 'Reintentos al crear delivery note', '5'),
                     self::number('JTL_DELIVERY_NOTE_CREATE_RETRY_DELAY_SECONDS', 'Segundos entre reintentos delivery note', '2'),
                     self::text('JTL_SALES_CHANNELS_ENDPOINT', 'Sales channels endpoint', '/api/eazybusiness/salesChannels'),

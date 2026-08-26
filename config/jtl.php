@@ -46,7 +46,6 @@ return [
     'delivery_note_workflow_event_id' => Setting::get('JTL_DELIVERY_NOTE_WORKFLOW_EVENT_ID', ''),
     'sales_order_workflow_events_endpoint' => Setting::get('JTL_SALES_ORDER_WORKFLOW_EVENTS_ENDPOINT', '/api/eazybusiness/v1/salesOrders/workflowEvents'),
     'sales_order_workflow_trigger_endpoint' => Setting::get('JTL_SALES_ORDER_WORKFLOW_TRIGGER_ENDPOINT', '/api/eazybusiness/v1/salesOrders/{id}/workflowEvents'),
-    'sales_order_workflow_trigger_by_id_endpoint' => Setting::get('JTL_SALES_ORDER_WORKFLOW_TRIGGER_BY_ID_ENDPOINT', '/api/eazybusiness/v1/salesOrders/{id}/workflow/{workflowEventId}'),
     'delivery_note_create_retries' => (int) Setting::get('JTL_DELIVERY_NOTE_CREATE_RETRIES', 5),
     'delivery_note_create_retry_delay_seconds' => (int) Setting::get('JTL_DELIVERY_NOTE_CREATE_RETRY_DELAY_SECONDS', 2),
     'sales_channels_endpoint' => Setting::get('JTL_SALES_CHANNELS_ENDPOINT', '/api/eazybusiness/salesChannels'),

@@ -344,7 +344,17 @@ final class JtlClient
         return $this->collection($this->http->get($endpoint));
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Triggers a JTL-Wawi sales order workflow event via `POST .../salesOrders/{id}/workflowEvents` with
+     * `{"Id": workflowEventId}` in the body. This is the only endpoint shape JTL's REST API (eazyBusiness,
+     * on-premise Wawi) documents and supports for sales orders (confirmed against JTL's own API reference and
+     * community reports); unlike delivery notes, there is no `salesOrders/{id}/workflow/{workflowEventId}`
+     * route, so a prior fallback attempt to that shape always 404'd and masked whatever the real error was.
+     * If this call fails, the exception (including JTL's response body, e.g. its `ErrorMessage`) is left to
+     * propagate so callers see the actual reason instead of a generic non-existent-route 404.
+     *
+     * @return array<string, mixed>
+     */
     public function triggerSalesOrderWorkflowEvent(string $salesOrderId, int $workflowEventId): array
     {
         if ($workflowEventId <= 0) {
@@ -355,36 +365,14 @@ final class JtlClient
             (string) ($this->config['sales_order_workflow_trigger_endpoint'] ?? ''),
             ['id' => $salesOrderId, 'salesOrderId' => $salesOrderId]
         );
-        $lastException = null;
 
-        if ($endpoint !== '') {
-            try {
-                return $this->http->post($endpoint, [
-                    'json' => ['Id' => $workflowEventId],
-                ]);
-            } catch (HttpException $exception) {
-                $lastException = $exception;
-
-                if (!in_array($exception->statusCode(), [400, 404, 405], true)) {
-                    throw $exception;
-                }
-            }
+        if ($endpoint === '') {
+            throw new RuntimeException('JTL sales order workflow trigger endpoint is not configured.');
         }
 
-        $fallbackEndpoint = $this->endpointWithReplacements(
-            (string) ($this->config['sales_order_workflow_trigger_by_id_endpoint'] ?? ''),
-            [
-                'id' => $salesOrderId,
-                'salesOrderId' => $salesOrderId,
-                'workflowEventId' => (string) $workflowEventId,
-            ]
-        );
-
-        if ($fallbackEndpoint !== '') {
-            return $this->http->post($fallbackEndpoint);
-        }
-
-        throw $lastException ?? new RuntimeException('JTL sales order workflow trigger endpoint is not configured.');
+        return $this->http->post($endpoint, [
+            'json' => ['Id' => $workflowEventId],
+        ]);
     }
 
     public function autoCreateDeliveryNoteEnabled(): bool

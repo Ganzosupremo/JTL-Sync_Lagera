@@ -2725,7 +2725,6 @@ final class DashboardController
             'JTL_DELIVERY_NOTE_PACKAGES_ENDPOINT',
             'JTL_SALES_ORDER_WORKFLOW_EVENTS_ENDPOINT',
             'JTL_SALES_ORDER_WORKFLOW_TRIGGER_ENDPOINT',
-            'JTL_SALES_ORDER_WORKFLOW_TRIGGER_BY_ID_ENDPOINT',
         ], true);
 
         ob_start();
