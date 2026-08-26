@@ -205,6 +205,8 @@ JTL no tiene un campo de shipping-method/carrier estructurado en los paquetes de
 
 El boton manual "Buscar tracking nuevo ahora" del tab Fulfillment y el cron corren el mismo `FulfillmentSyncService::sync()`, que llama a Packiyo y JTL una orden a la vez. Con muchas ordenes pendientes esto puede tardar mas que el timeout del navegador o del proxy del hosting, asi que la corrida se detiene sola tras `FULFILLMENT_SYNC_TIME_BUDGET_SECONDS` (20s por defecto) y deja el resto para el siguiente click o el proximo tick del cron; el mensaje de resultado avisa cuando se detuvo por este motivo. Subi ese valor si tu servidor tolera peticiones mas largas y prefieres menos corridas parciales.
 
+La tabla del tab Fulfillment solo muestra ordenes que ya pasaron por `fulfillment_syncs` (tracking enviado con exito, o reintentando el evento "Shipped"). Si una orden falla al enviar el tracking a JTL (por ejemplo, no hay un delivery note que le corresponda todavia), esa orden se guarda ahi con estado `failed` y el motivo, en vez de solo quedar en el log: asi no desaparece de la vista aunque siga fallando en cada corrida, y se sigue reintentando automaticamente (un estado `failed` no cuenta como terminado). Si filtras el tab por un cliente Packiyo y ves menos ordenes de las que esperabas, revisa si hay filas en estado `failed` para ese cliente antes de asumir que faltan ordenes por sincronizar.
+
 ## Autenticacion
 
 La app puede proteger el dashboard y las acciones manuales con login de sesion. Los usuarios se guardan en MySQL en `app_users` y las contrasenas se guardan siempre con `password_hash`.

@@ -1,2 +1,3 @@
 - [Dashboard remote verification](dashboard-remote-verification.md) — Keep list pages local-first; verify external order state only on explicit demand.
 - [JTL shipped status vs carrier field](jtl-shipped-status-vs-carrier-field.md) — JTL packages have no writable carrier field; BOL fulfillment needs the delivery-note "Shipped" workflow event instead.
+- [Sync loop silent failures](sync-loop-silent-failures.md) — per-order sync loops must persist a visible `failed` row, not just log, or failing orders vanish from the dashboard and look like they don't exist.

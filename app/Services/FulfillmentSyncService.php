@@ -96,6 +96,7 @@ final class FulfillmentSyncService
 
                     try {
                         $this->sendShipmentToJtl($mapping, $shipment);
+                        $summary['synced']++;
                     } catch (Throwable $exception) {
                         if ($this->jtlClient()->isReachabilityException($exception)) {
                             throw new JtlUnavailableDuringFulfillmentException(
@@ -105,10 +106,23 @@ final class FulfillmentSyncService
                             );
                         }
 
-                        throw $exception;
+                        // A non-reachability failure (e.g. no matching JTL delivery note yet) used to only be
+                        // logged and counted in this run's ephemeral summary, then disappear: nothing was saved,
+                        // so the order never showed up anywhere in the dashboard even though it kept silently
+                        // failing on every run. Persisting it here as a `failed` fulfillment_syncs row makes it
+                        // visible (and filterable by customer) in the Fulfillment tab, while still letting it be
+                        // retried automatically next run: exists()/pendingFulfillment() only treat `synced` and
+                        // `already_present` as done, not `failed`.
+                        $summary['failed']++;
+                        $message = $this->friendlyException($exception);
+                        $this->log()->error(
+                            'fulfillment_sync',
+                            'Unable to sync fulfillment for JTL order '
+                            . (string) ($mapping['jtl_order_number'] ?: $mapping['jtl_order_id'])
+                            . ': ' . $message
+                        );
+                        $this->saveFailedAttempt($mapping, $shipment, $message);
                     }
-
-                    $summary['synced']++;
                 }
             } catch (JtlUnavailableDuringFulfillmentException $exception) {
                 $summary['failed']++;
@@ -431,6 +445,37 @@ final class FulfillmentSyncService
             'fulfillment_sync',
             'Sent tracking ' . $shipment['tracking_number'] . ' to JTL order ' . (string) $mapping['jtl_order_id'] . '.'
         );
+    }
+
+    /**
+     * Records a failed attempt to send an already-known shipment/tracking to JTL (e.g. no matching delivery
+     * note yet) so it shows up in the Fulfillment tab instead of silently vanishing. Uses the same
+     * (jtl_order_id, tracking_number) upsert key as saveFulfillment(), so a later successful retry simply
+     * overwrites this row with status `synced`/`already_present`.
+     *
+     * @param array<string, mixed> $mapping
+     * @param array<string, string> $shipment
+     */
+    private function saveFailedAttempt(array $mapping, array $shipment, string $lastError): void
+    {
+        $this->fulfillmentModel()->upsert([
+            'jtl_order_id' => (string) $mapping['jtl_order_id'],
+            'jtl_order_number' => $mapping['jtl_order_number'] ?? null,
+            'packiyo_order_id' => (string) $mapping['packiyo_order_id'],
+            'packiyo_customer_id' => $mapping['packiyo_customer_id'] ?? null,
+            'packiyo_customer_name' => $mapping['packiyo_customer_name'] ?? null,
+            'packiyo_shipment_id' => $shipment['packiyo_shipment_id'],
+            'packiyo_tracking_id' => $shipment['packiyo_tracking_id'],
+            'tracking_number' => $shipment['tracking_number'],
+            'tracking_url' => $shipment['tracking_url'],
+            'carrier' => $shipment['carrier'],
+            'shipped_at' => $this->mysqlDate($shipment['shipped_at']),
+            'jtl_delivery_note_id' => null,
+            'jtl_package_id' => null,
+            'status' => 'failed',
+            'last_error' => $lastError,
+            'synced_at' => date('Y-m-d H:i:s'),
+        ]);
     }
 
     /** @param array<string, mixed> $response */

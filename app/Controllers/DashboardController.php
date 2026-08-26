@@ -295,6 +295,7 @@ final class DashboardController
             --accent: #2563eb;
             --ok: #16803c;
             --warn: #a16207;
+            --danger: #b42318;
             --bad: #b42318;
         }
 
@@ -477,6 +478,11 @@ final class DashboardController
         .status.missing_config {
             background: #fff4df;
             color: var(--warn);
+        }
+
+        .status.failed {
+            background: #fdecea;
+            color: var(--danger);
         }
 
         .status.registration_pending {
@@ -1918,7 +1924,20 @@ final class DashboardController
                                                 <div class="muted">Package <?= $this->e($row['jtl_package_id']) ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td data-sort-value="<?= $this->e($row['status'] ?? '') ?>"><span class="status <?= (($row['status'] ?? '') === 'synced' || ($row['status'] ?? '') === 'already_present') ? 'synced' : 'missing_config' ?>"><?= $this->e($row['status'] ?? '-') ?></span></td>
+                                        <td data-sort-value="<?= $this->e($row['status'] ?? '') ?>">
+                                            <?php
+                                                $fulfillmentStatus = (string) ($row['status'] ?? '');
+                                                $fulfillmentStatusClass = match (true) {
+                                                    $fulfillmentStatus === 'synced' || $fulfillmentStatus === 'already_present' => 'synced',
+                                                    $fulfillmentStatus === 'failed' => 'failed',
+                                                    default => 'missing_config',
+                                                };
+                                            ?>
+                                            <span class="status <?= $this->e($fulfillmentStatusClass) ?>"><?= $this->e($fulfillmentStatus ?: '-') ?></span>
+                                            <?php if ($fulfillmentStatus === 'failed' && ($row['last_error'] ?? '') !== ''): ?>
+                                                <div class="muted"><?= $this->e($row['last_error']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
                                         <td data-sort-value="<?= $this->e($row['synced_at'] ?? '') ?>"><?= $this->e($row['synced_at'] ?? '-') ?></td>
                                     </tr>
                                 <?php endforeach; ?>
