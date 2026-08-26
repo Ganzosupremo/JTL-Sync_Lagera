@@ -47,7 +47,7 @@ final class FulfillmentSyncService
         );
         $jtlUnavailableMessage = null;
 
-        foreach ($this->orderModel()->all($limit, $packiyoCustomerId) as $mapping) {
+        foreach ($this->orderModel()->pendingFulfillment($limit, $packiyoCustomerId) as $mapping) {
             $summary['checked']++;
 
             try {
