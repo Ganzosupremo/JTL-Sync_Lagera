@@ -11,11 +11,15 @@ use App\Models\FulfillmentSync;
 use App\Models\OrderMapping;
 use App\Support\HttpException;
 use App\Support\Logger;
+use App\Support\Setting;
 use RuntimeException;
 use Throwable;
 
 final class FulfillmentSyncService
 {
+    /** Wall-clock deadline (microtime(true) seconds) for the current sync() call, or null when unbounded. */
+    private ?float $deadline = null;
+
     public function __construct(
         private readonly ?OrderMapping $orders = null,
         private readonly ?FulfillmentSync $fulfillments = null,
@@ -41,13 +45,32 @@ final class FulfillmentSyncService
             'message' => '',
         ];
 
+        // Packiyo/JTL calls happen one order at a time over the network, so a large pending queue can easily
+        // run past a browser or reverse-proxy request timeout. Rather than trying to process everything in one
+        // HTTP request, stop early once the budget is spent: already-synced orders are skipped next time
+        // (see OrderMapping::pendingFulfillment()), so the remaining ones simply pick up on the next click or
+        // cron tick instead of the whole request failing with a timeout.
+        $budgetSeconds = max(1, (int) Setting::get('FULFILLMENT_SYNC_TIME_BUDGET_SECONDS', 20));
+        $this->deadline = microtime(true) + $budgetSeconds;
+
         $this->log()->info(
             'fulfillment_sync',
             'Fulfillment sync started' . ($packiyoCustomerId !== null ? ' for Packiyo customer ' . $packiyoCustomerId : '') . '.'
         );
         $jtlUnavailableMessage = null;
+        $stoppedForTimeBudget = false;
 
         foreach ($this->orderModel()->pendingFulfillment($limit, $packiyoCustomerId) as $mapping) {
+            if ($summary['checked'] > 0 && $this->timeBudgetExceeded()) {
+                $stoppedForTimeBudget = true;
+                $this->log()->info(
+                    'fulfillment_sync',
+                    'Fulfillment sync paused after ' . $budgetSeconds . 's to avoid a request timeout; '
+                    . 'the remaining pending orders will be picked up on the next run.'
+                );
+                break;
+            }
+
             $summary['checked']++;
 
             try {
@@ -112,7 +135,13 @@ final class FulfillmentSyncService
                 $summary['synced'],
                 $summary['skipped'],
                 $summary['failed']
-            );
+            )
+            . ($stoppedForTimeBudget
+                ? sprintf(
+                    ' Se detuvo tras %ds para evitar un timeout; quedan mas ordenes pendientes y se revisaran en la siguiente corrida (cron o un nuevo click).',
+                    $budgetSeconds
+                )
+                : '');
 
         $this->stateModel()->markSuccess('fulfillment_sync', date('Y-m-d H:i:s'), $summary['message']);
         $this->log()->info('fulfillment_sync', $summary['message']);
@@ -336,6 +365,13 @@ final class FulfillmentSyncService
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             if ($attempt > 1 && $delaySeconds > 0) {
+                if ($this->timeBudgetExceeded()) {
+                    // Don't let one order's retry-with-sleep loop burn the whole request's time budget;
+                    // give up for now so other pending orders still get a chance this run, and retry this
+                    // one (no fulfillment row was saved) on the next sync.
+                    break;
+                }
+
                 sleep($delaySeconds);
             }
 
@@ -675,6 +711,11 @@ final class FulfillmentSyncService
         }
 
         return $exception->getMessage();
+    }
+
+    private function timeBudgetExceeded(): bool
+    {
+        return $this->deadline !== null && microtime(true) >= $this->deadline;
     }
 
     private function orderModel(): OrderMapping
