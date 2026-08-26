@@ -147,6 +147,52 @@ final class OrderMapping
         return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
     }
 
+    /**
+     * Mapped orders that do not yet have a confirmed tracking sync in JTL.
+     *
+     * Excludes orders whose tracking was already delivered to a JTL delivery note
+     * (status `synced` or `already_present` with a delivery note id), so the
+     * fulfillment sync only spends Packiyo/JTL calls on orders that still need
+     * checking, and older already-completed orders never crowd out newer ones.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function pendingFulfillment(int $limit = 500, ?string $packiyoCustomerId = null): array
+    {
+        $packiyoCustomerId = trim((string) $packiyoCustomerId);
+        $notDone = 'NOT EXISTS (
+                SELECT 1 FROM fulfillment_syncs fs
+                WHERE fs.jtl_order_id = order_mappings.jtl_order_id
+                    AND fs.status IN (\'synced\', \'already_present\')
+                    AND fs.jtl_delivery_note_id IS NOT NULL
+            )';
+
+        if ($packiyoCustomerId !== '') {
+            $statement = $this->connection()->prepare(
+                'SELECT * FROM order_mappings
+                WHERE packiyo_customer_id = ?
+                    AND ' . $notDone . '
+                ORDER BY synced_at ASC, id ASC
+                LIMIT ?'
+            );
+            $statement->bind_param('si', $packiyoCustomerId, $limit);
+            $statement->execute();
+
+            return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
+        }
+
+        $statement = $this->connection()->prepare(
+            'SELECT * FROM order_mappings
+            WHERE ' . $notDone . '
+            ORDER BY synced_at ASC, id ASC
+            LIMIT ?'
+        );
+        $statement->bind_param('i', $limit);
+        $statement->execute();
+
+        return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
     public function countSyncedToday(): int
     {
         $statement = $this->connection()->prepare(
