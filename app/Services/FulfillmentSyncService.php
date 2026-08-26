@@ -47,7 +47,7 @@ final class FulfillmentSyncService
         );
         $jtlUnavailableMessage = null;
 
-        foreach ($this->orderModel()->pendingFulfillment($limit, $packiyoCustomerId) as $mapping) {
+        foreach ($this->orderModel()->all($limit, $packiyoCustomerId) as $mapping) {
             $summary['checked']++;
 
             try {
@@ -225,9 +225,19 @@ final class FulfillmentSyncService
             throw new RuntimeException('JTL delivery note has no usable id.');
         }
 
+        $orderLabel = $jtlOrderNumber !== null && $jtlOrderNumber !== '' ? $jtlOrderNumber : $jtlOrderId;
+
         foreach ($this->jtlClient()->getDeliveryNotePackages($deliveryNoteId) as $package) {
             if ($this->stringValue($package, ['TrackingID', 'trackingID', 'trackingId', 'tracking_number']) === $shipment['tracking_number']) {
-                $this->saveFulfillment($mapping, $shipment, $deliveryNoteId, $this->stringValue($package, ['Id', 'id', 'PackageId', 'packageId']), 'already_present');
+                $shippedError = $this->markDeliveryNoteShipped($deliveryNoteId, $orderLabel);
+                $this->saveFulfillment(
+                    $mapping,
+                    $shipment,
+                    $deliveryNoteId,
+                    $this->stringValue($package, ['Id', 'id', 'PackageId', 'packageId']),
+                    $shippedError === null ? 'already_present' : 'shipped_pending',
+                    $shippedError
+                );
                 return;
             }
         }
@@ -238,14 +248,62 @@ final class FulfillmentSyncService
             'Comment' => $this->shipmentComment($shipment),
         ]]);
 
+        $shippedError = $this->markDeliveryNoteShipped($deliveryNoteId, $orderLabel);
+
         $createdPackage = $this->firstDeliveryNote($this->collection($response));
         $this->saveFulfillment(
             $mapping,
             $shipment,
             $deliveryNoteId,
             $createdPackage !== null ? $this->stringValue($createdPackage, ['Id', 'id', 'PackageId', 'packageId']) : null,
-            'synced'
+            $shippedError === null ? 'synced' : 'shipped_pending',
+            $shippedError
         );
+    }
+
+    /**
+     * JTL does not accept a shipping-method/carrier field on delivery note packages (it is a read-only value JTL
+     * derives itself from the order). What BOL/marketplace fulfillment actually depends on is JTL's own delivery
+     * note "Shipped" workflow event, which this triggers explicitly so JTL-Worker reports the order as fulfilled.
+     *
+     * A non-reachability failure here (e.g. missing scope) does not throw: the tracking package itself was
+     * already sent to JTL successfully, so we still record that. Instead the fulfillment row is saved with
+     * status `shipped_pending` and the error message (see sendShipmentToJtl callers). FulfillmentSync::exists()
+     * does not treat `shipped_pending` as done, so the next sync run naturally retries this same shipment's
+     * Shipped event until it succeeds - without resending the tracking number.
+     *
+     * @return string|null null if the Shipped event was triggered (or the feature is intentionally disabled),
+     *                      otherwise the friendly error message to persist and retry on the next sync run.
+     */
+    private function markDeliveryNoteShipped(string $deliveryNoteId, string $orderLabel): ?string
+    {
+        if (!$this->jtlClient()->markDeliveryNoteShippedEnabled()) {
+            return null;
+        }
+
+        try {
+            $this->jtlClient()->triggerDeliveryNoteShippedWorkflowEvent($deliveryNoteId);
+            $this->log()->info(
+                'fulfillment_sync',
+                'JTL delivery note ' . $deliveryNoteId . ' de la orden ' . $orderLabel
+                . ' fue marcado como Shipped para que el marketplace lo vea como fulfilled.'
+            );
+
+            return null;
+        } catch (Throwable $exception) {
+            if ($this->jtlClient()->isReachabilityException($exception)) {
+                throw $exception;
+            }
+
+            $message = $this->friendlyException($exception);
+            $this->log()->error(
+                'fulfillment_sync',
+                'No se pudo marcar como Shipped el delivery note ' . $deliveryNoteId . ' de la orden ' . $orderLabel
+                . ' (el tracking si se envio a JTL, se reintentara marcar como Shipped en la proxima corrida): ' . $message
+            );
+
+            return $message;
+        }
     }
 
     private function deliveryNoteForOrder(string $jtlOrderId, ?string $jtlOrderNumber): ?array
@@ -311,7 +369,8 @@ final class FulfillmentSyncService
         array $shipment,
         string $deliveryNoteId,
         ?string $packageId,
-        string $status
+        string $status,
+        ?string $lastError = null
     ): void {
         $this->fulfillmentModel()->upsert([
             'jtl_order_id' => (string) $mapping['jtl_order_id'],
@@ -328,6 +387,7 @@ final class FulfillmentSyncService
             'jtl_delivery_note_id' => $deliveryNoteId,
             'jtl_package_id' => $packageId,
             'status' => $status,
+            'last_error' => $lastError,
             'synced_at' => date('Y-m-d H:i:s'),
         ]);
 
@@ -611,7 +671,7 @@ final class FulfillmentSyncService
     private function friendlyException(Throwable $exception): string
     {
         if ($exception instanceof HttpException && $exception->statusCode() === 403) {
-            return 'JTL rejected the request with 403. Re-register this app in JTL and approve deliverynotes.read, deliverynotes.write, salesorders.write, salesorder.triggersalesorderworkflowevent and salesorder.triggersalesorderworkflow scopes.';
+            return 'JTL rejected the request with 403. Re-register this app in JTL and approve deliverynotes.read, deliverynotes.write, deliverynote.triggerdeliverynoteworkflow, salesorders.write, salesorder.triggersalesorderworkflowevent and salesorder.triggersalesorderworkflow scopes.';
         }
 
         return $exception->getMessage();

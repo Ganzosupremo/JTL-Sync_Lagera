@@ -201,6 +201,8 @@ AUTOMATION_FULFILLMENT_LIMIT=200
 
 El tracking hacia JTL requiere que la app registrada tenga scopes `deliverynotes.read` y `deliverynotes.write`, y que JTL ya tenga un `Lieferschein`/delivery note para la orden. Si no existe delivery note, la corrida registra el error y no puede marcar tracking.
 
+JTL no tiene un campo de shipping-method/carrier estructurado en los paquetes del delivery note (`TrackingID`, `ShippedDate` y `Comment` son los unicos campos que la API acepta al crear un paquete; el `shippingMethodId` que JTL devuelve al leer un paquete es de solo lectura y lo asigna JTL internamente). Lo que BOL/el marketplace realmente necesita para ver la orden como fulfilled es que JTL dispare su evento de workflow interno "Shipped" sobre el delivery note (no solo que exista el paquete de tracking). Por eso, despues de mandar el tracking, la app llama automaticamente a `POST .../deliveryNotes/{id}/workflow/{workflowEventId}` con el evento `Shipped` (id fijo `3` en el enum de JTL: `1=Created, 2=Deleted, 3=Shipped`). Esto requiere el scope adicional `deliverynote.triggerdeliverynoteworkflow`. Si un error al marcar "Shipped" no es de conectividad, se registra como advertencia y no bloquea el tracking (que ya se envio). Se puede desactivar con `JTL_MARK_DELIVERY_NOTE_SHIPPED=false` si la instalacion de JTL no soporta este endpoint.
+
 ## Autenticacion
 
 La app puede proteger el dashboard y las acciones manuales con login de sesion. Los usuarios se guardan en MySQL en `app_users` y las contrasenas se guardan siempre con `password_hash`.

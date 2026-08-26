@@ -24,6 +24,7 @@ final class JtlScopeList
         'stock.stockadjustment',
         'deliverynotes.read',
         'deliverynotes.write',
+        'deliverynote.triggerdeliverynoteworkflow',
         'worker.getworkersyncs',
         'worker.getworkerstatus',
         'worker.synccontrol',

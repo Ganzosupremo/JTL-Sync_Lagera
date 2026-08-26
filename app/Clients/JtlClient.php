@@ -15,6 +15,14 @@ final class JtlClient
 {
     public const WORKER_CONTROL_CLIENT_VERSION = 'worker-v1-canonical-only-20260705';
 
+    /**
+     * JTL's fixed DeliveryNoteWorkflowEvent enum (REST Contracts V1): 1 = Created, 2 = Deleted, 3 = Shipped.
+     * Triggering "Shipped" is what flips the delivery note's/order's shipped status inside JTL-Wawi so that
+     * JTL-Worker's marketplace sync (BOL, etc.) reports the order as fulfilled. JTL does not expose a writable
+     * shipping-method/carrier field on delivery note packages: it is a read-only value JTL derives itself.
+     */
+    private const DELIVERY_NOTE_WORKFLOW_EVENT_SHIPPED = 3;
+
     private HttpClient $http;
 
     /** @var array<string, mixed> */
@@ -292,6 +300,36 @@ final class JtlClient
         return $this->http->post($this->deliveryNotePackagesEndpoint($deliveryNoteId), [
             'json' => $packages,
         ]);
+    }
+
+    public function markDeliveryNoteShippedEnabled(): bool
+    {
+        return (bool) ($this->config['mark_delivery_note_shipped'] ?? true);
+    }
+
+    /**
+     * Triggers JTL's built-in "Shipped" workflow event for a delivery note. This is the field/call BOL and other
+     * marketplaces rely on (via JTL-Worker) to consider an order fulfilled; it is separate from, and required in
+     * addition to, adding the tracking package via createDeliveryNotePackages().
+     *
+     * @return array<string, mixed>
+     */
+    public function triggerDeliveryNoteShippedWorkflowEvent(string $deliveryNoteId): array
+    {
+        $endpoint = $this->endpointWithReplacements(
+            (string) ($this->config['delivery_note_workflow_trigger_endpoint'] ?? ''),
+            [
+                'id' => $deliveryNoteId,
+                'deliveryNoteId' => $deliveryNoteId,
+                'workflowEventId' => (string) self::DELIVERY_NOTE_WORKFLOW_EVENT_SHIPPED,
+            ]
+        );
+
+        if ($endpoint === '') {
+            throw new RuntimeException('JTL delivery note workflow trigger endpoint is not configured.');
+        }
+
+        return $this->http->post($endpoint);
     }
 
     /** @return array<int, array<string, mixed>> */
