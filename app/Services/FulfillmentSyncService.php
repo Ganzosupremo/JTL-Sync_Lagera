@@ -755,6 +755,24 @@ final class FulfillmentSyncService
             return 'JTL rejected the request with 403. Re-register this app in JTL and approve deliverynotes.read, deliverynotes.write, deliverynote.triggerdeliverynoteworkflow, salesorders.write, salesorder.triggersalesorderworkflowevent and salesorder.triggersalesorderworkflow scopes.';
         }
 
+        if (
+            $exception instanceof HttpException
+            && $exception->statusCode() === 404
+            && str_contains($exception->url(), 'workflowEvents')
+            && str_contains($exception->getMessage(), 'EntityNotFound')
+        ) {
+            // Unlike delivery notes (fixed 1=Created/2=Deleted/3=Shipped enum), sales order workflow event IDs
+            // are custom automation rules configured per JTL-Wawi installation - there is no universal "1".
+            // This error means JTL_DELIVERY_NOTE_WORKFLOW_EVENT_ID does not match any real event on this install.
+            return $exception->getMessage()
+                . ' Tip: JTL_DELIVERY_NOTE_WORKFLOW_EVENT_ID no coincide con ningun workflow event de Auftraege '
+                . 'real en esta instalacion de JTL-Wawi (a diferencia de los delivery notes, estos IDs son '
+                . 'especificos de cada instalacion, no un enum fijo). En Ajustes, usa el boton "Leer workflow '
+                . 'events de JTL" para ver los IDs y nombres reales, y corrige el valor con el ID del evento manual '
+                . 'que crea el Lieferschein. Si ese evento todavia no existe, hay que crearlo primero en el '
+                . 'Workflow-Designer de JTL-Wawi.';
+        }
+
         return $exception->getMessage();
     }
 
