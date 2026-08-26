@@ -660,14 +660,22 @@ final class DashboardController
         }
 
         .fulfillment-sync-form {
+            align-items: flex-end;
             display: flex;
             flex: 0 0 auto;
-            justify-content: flex-end;
+            flex-direction: column;
+            gap: 6px;
             margin: 0;
         }
 
         .fulfillment-sync-form .button {
             min-width: 190px;
+        }
+
+        .fulfillment-sync-hint {
+            font-size: 12px;
+            max-width: 260px;
+            text-align: right;
         }
 
         .button-link {
@@ -919,6 +927,11 @@ final class DashboardController
             .fulfillment-sync-form,
             .fulfillment-sync-form .button {
                 width: 100%;
+            }
+
+            .fulfillment-sync-hint {
+                max-width: 100%;
+                text-align: left;
             }
 
             .section-head {
@@ -1845,8 +1858,11 @@ final class DashboardController
                         <form class="fulfillment-sync-form" action="<?= $this->e($this->url('/fulfillment/sync')) ?>" method="post">
                             <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedCustomerId) ?>">
                             <button class="button" type="submit">
-                                <?= $selectedCustomerId !== '' ? 'Enviar tracking filtrado a JTL' : 'Enviar tracking a JTL' ?>
+                                <?= $selectedCustomerId !== '' ? 'Buscar tracking nuevo (cliente filtrado)' : 'Buscar tracking nuevo ahora' ?>
                             </button>
+                            <span class="muted fulfillment-sync-hint">
+                                Revisa Packiyo por tracking nuevo y lo envia a JTL al instante, sin esperar al cron. El resultado aparece arriba de la pagina.
+                            </span>
                         </form>
                     </div>
 
