@@ -173,7 +173,7 @@ final class DashboardController
             $syncStates->get('packiyo_customers'),
             $syncStates->get('fulfillment_sync'),
             $syncStates->get('automation'),
-            $fulfillmentSyncs->recent(50, $fulfillmentCustomerId),
+            $fulfillmentSyncs->recent(500, $fulfillmentCustomerId),
             $jtlOrders,
             $jtlOrdersError,
             $jtlWorkerSyncs,
@@ -197,8 +197,8 @@ final class DashboardController
             $selectedProductCustomerId,
             $productImportCategoryId,
             $productImportWarehouseId,
-            $mappings->recent(50),
-            $logs->recent(100),
+            $mappings->recent(500),
+            $logs->recent(500),
             $this->noticeFromRequest($_GET['notice'] ?? $_GET['sync'] ?? null)
         );
     }
@@ -300,6 +300,16 @@ final class DashboardController
 
         * {
             box-sizing: border-box;
+        }
+
+        .sr-only {
+            clip: rect(0, 0, 0, 0);
+            clip-path: inset(50%);
+            height: 1px;
+            overflow: hidden;
+            position: absolute;
+            white-space: nowrap;
+            width: 1px;
         }
 
         body {
@@ -581,6 +591,32 @@ final class DashboardController
             grid-template-columns: minmax(220px, 1fr) minmax(150px, 190px) minmax(150px, 190px) auto;
             gap: 10px;
             margin-bottom: 14px;
+        }
+
+        .table-search {
+            align-items: center;
+            display: grid;
+            gap: 10px;
+            grid-template-columns: minmax(220px, 1fr) auto auto;
+            margin: 0 0 10px;
+        }
+
+        .table-search input[type="search"] {
+            min-width: 0;
+            width: 100%;
+        }
+
+        .table-search-count {
+            color: var(--muted);
+            font-size: 12px;
+            min-width: 72px;
+            text-align: right;
+        }
+
+        .table-search-empty td {
+            color: var(--muted);
+            padding: 22px 14px;
+            text-align: center;
         }
 
         .worker-panel {
@@ -906,8 +942,12 @@ final class DashboardController
                 padding-top: 18px;
             }
 
-            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .jtl-order-filter-form, .fulfillment-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid, .order-edit-grid, .address-fields, .order-line-fields {
+            .summary, .details, .mapping-form, .manual-order-form, .invite-form, .product-filter-form, .table-search, .jtl-order-filter-form, .fulfillment-filter-form, .sku-alias-filter-form, .sku-alias-form, .sku-alias-row-form, .settings-grid, .order-edit-grid, .address-fields, .order-line-fields {
                 grid-template-columns: 1fr;
+            }
+
+            .table-search-count {
+                text-align: left;
             }
 
             .fulfillment-toolbar {
@@ -1104,7 +1144,10 @@ final class DashboardController
 
                         const type = button.dataset.sortType || 'text';
                         const columnIndex = button.parentElement.cellIndex;
-                        const rows = Array.from(body.rows).map((row, index) => ({ row, index }));
+                        const emptyRow = body.querySelector('.table-search-empty');
+                        const rows = Array.from(body.rows)
+                            .filter((row) => !row.classList.contains('table-search-empty'))
+                            .map((row, index) => ({ row, index }));
                         rows.sort((left, right) => {
                             const leftValue = sortableValue(left.row.cells[columnIndex], type);
                             const rightValue = sortableValue(right.row.cells[columnIndex], type);
@@ -1116,9 +1159,155 @@ final class DashboardController
                             return comparison === 0 ? left.index - right.index : comparison * direction;
                         });
                         rows.forEach(({ row }) => body.appendChild(row));
+                        if (emptyRow) body.appendChild(emptyRow);
                     });
                 });
             });
+
+            const normalizeSearchText = (value) => String(value ?? '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLocaleLowerCase()
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            const rowSearchText = (row) => {
+                const controlValues = Array.from(row.querySelectorAll('input, select, textarea'))
+                    .flatMap((control) => {
+                        if (control instanceof HTMLSelectElement) {
+                            const selected = Array.from(control.selectedOptions).map((option) => option.textContent ?? '');
+                            return [control.value, ...selected];
+                        }
+
+                        return [control.value ?? ''];
+                    });
+
+                return normalizeSearchText([row.textContent ?? '', ...controlValues].join(' '));
+            };
+
+            const tableSearchControllers = new Map();
+
+            document.querySelectorAll('table').forEach((table, index) => {
+                const body = table.tBodies[0];
+                if (!body || body.rows.length === 0) return;
+
+                const rows = Array.from(body.rows);
+                const searchTexts = new Map(rows.map((row) => [row, rowSearchText(row)]));
+                const filters = new Map();
+                const tableKey = table.dataset.sortTable || `table-${index + 1}`;
+                const heading = table.closest('section')?.querySelector('h2, h3')?.textContent?.trim() || 'esta tabla';
+                const toolbar = document.createElement('div');
+                const inputId = `table-search-${index + 1}`;
+                toolbar.className = 'table-search';
+                toolbar.innerHTML = `
+                    <label class="sr-only" for="${inputId}">Buscar en ${heading}</label>
+                    <input id="${inputId}" type="search" placeholder="Buscar en ${heading}..." autocomplete="off">
+                    <span class="table-search-count" aria-live="polite"></span>
+                    <button class="button secondary small" type="button">Limpiar</button>
+                `;
+
+                const searchHost = table.closest('.scroll-table') || table;
+                searchHost.parentNode?.insertBefore(toolbar, searchHost);
+
+                const input = toolbar.querySelector('input');
+                const count = toolbar.querySelector('.table-search-count');
+                const clear = toolbar.querySelector('button');
+                const emptyRow = document.createElement('tr');
+                emptyRow.className = 'table-search-empty';
+                emptyRow.hidden = true;
+                emptyRow.innerHTML = `<td colspan="${Math.max(1, table.tHead?.rows[0]?.cells.length || 1)}">Sin coincidencias para esta búsqueda.</td>`;
+                body.appendChild(emptyRow);
+
+                const apply = () => {
+                    const tokens = normalizeSearchText(input?.value ?? '').split(' ').filter(Boolean);
+                    let visible = 0;
+
+                    rows.forEach((row) => {
+                        const text = searchTexts.get(row) || '';
+                        const matchesText = tokens.every((token) => text.includes(token));
+                        const matchesFilters = Array.from(filters.values()).every((filter) => filter(row));
+                        row.hidden = !(matchesText && matchesFilters);
+                        if (!row.hidden) visible++;
+                    });
+
+                    emptyRow.hidden = visible !== 0;
+                    if (count) count.textContent = `${visible} de ${rows.length}`;
+                };
+
+                input?.addEventListener('input', apply);
+                input?.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') event.preventDefault();
+                });
+                clear?.addEventListener('click', () => {
+                    if (input) input.value = '';
+                    apply();
+                    input?.focus();
+                });
+
+                tableSearchControllers.set(tableKey, {
+                    apply,
+                    setFilter(name, filter) {
+                        if (typeof filter === 'function') filters.set(name, filter);
+                        else filters.delete(name);
+                        apply();
+                    },
+                });
+                apply();
+            });
+
+            const jtlFilterForm = document.querySelector('[data-client-filter-table="jtl-orders"]');
+            const jtlTableSearch = tableSearchControllers.get('jtl-orders');
+
+            if (jtlFilterForm && jtlTableSearch) {
+                const customerInput = jtlFilterForm.querySelector('[name="jtl_customer"]');
+                const mappedCustomerSelect = jtlFilterForm.querySelector('[name="jtl_mapped_customer"]');
+                const clearButton = jtlFilterForm.querySelector('[data-clear-jtl-filters]');
+                const bulkForm = document.querySelector('[data-jtl-bulk-form]');
+
+                const applyJtlFilters = () => {
+                    const customer = normalizeSearchText(customerInput?.value ?? '');
+                    const mappedCustomer = mappedCustomerSelect?.value ?? '';
+
+                    jtlTableSearch.setFilter('jtl-customer', (row) => {
+                        if (customer && !normalizeSearchText(row.dataset.jtlContact).includes(customer)) return false;
+                        if (mappedCustomer === '__unmapped__') return row.dataset.jtlMapped !== '1';
+                        if (mappedCustomer) return row.dataset.jtlMappedCustomer === mappedCustomer;
+                        return true;
+                    });
+
+                    if (bulkForm) {
+                        const hiddenCustomer = bulkForm.querySelector('[name="jtl_customer"]');
+                        const hiddenMappedCustomer = bulkForm.querySelector('[name="jtl_mapped_customer"]');
+                        const submit = bulkForm.querySelector('button[type="submit"]');
+                        if (hiddenCustomer) hiddenCustomer.value = customerInput?.value ?? '';
+                        if (hiddenMappedCustomer) hiddenMappedCustomer.value = mappedCustomer;
+                        if (submit) {
+                            submit.disabled = mappedCustomer === '__unmapped__';
+                            submit.textContent = mappedCustomer === '__unmapped__'
+                                ? 'Mapear antes de enviar'
+                                : (customer || mappedCustomer ? 'Enviar filtradas a Packiyo' : 'Enviar todas a Packiyo');
+                        }
+                    }
+                };
+
+                jtlFilterForm.addEventListener('submit', (event) => {
+                    event.preventDefault();
+                    applyJtlFilters();
+                });
+                customerInput?.addEventListener('input', applyJtlFilters);
+                mappedCustomerSelect?.addEventListener('change', applyJtlFilters);
+                clearButton?.addEventListener('click', () => {
+                    if (customerInput) customerInput.value = '';
+                    if (mappedCustomerSelect) mappedCustomerSelect.value = '';
+                    applyJtlFilters();
+                });
+                applyJtlFilters();
+            } else {
+                document.querySelector('[data-clear-jtl-filters]')?.addEventListener('click', (event) => {
+                    const url = event.currentTarget.dataset.clearUrl;
+                    if (url) window.location.assign(url);
+                });
+            }
         })();
     </script>
 </body>
@@ -1654,7 +1843,7 @@ final class DashboardController
                 <div class="section-head">
                     <h2>Ordenes nuevas de JTL</h2>
                     <div class="actions">
-                        <form action="<?= $this->e($this->url('/sync')) ?>" method="post">
+                        <form action="<?= $this->e($this->url('/sync')) ?>" method="post" data-jtl-bulk-form>
                             <input type="hidden" name="return_tab" value="jtl-orders">
                             <input type="hidden" name="jtl_customer" value="<?= $this->e($customerFilter) ?>">
                             <input type="hidden" name="jtl_mapped_customer" value="<?= $this->e($mappedCustomerFilter) ?>">
@@ -1669,7 +1858,7 @@ final class DashboardController
                 <div class="section-body">
                     <?= $this->renderJtlWorkerPanel($jtlWorkerSyncs, $jtlWorkerStatus, $jtlWorkerError) ?>
 
-                    <form class="jtl-order-filter-form" action="<?= $this->e($this->url('/')) ?>" method="get">
+                    <form class="jtl-order-filter-form" action="<?= $this->e($this->url('/')) ?>" method="get" data-client-filter-table="jtl-orders">
                         <input type="hidden" name="tab" value="jtl-orders">
                         <input name="jtl_customer" value="<?= $this->e($customerFilter) ?>" placeholder="Filtrar por cliente orden">
                         <select name="jtl_mapped_customer">
@@ -1683,7 +1872,7 @@ final class DashboardController
                             <?php endforeach; ?>
                         </select>
                         <button class="button" type="submit">Filtrar</button>
-                        <a class="button secondary button-link" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Limpiar</a>
+                        <button class="button secondary" type="button" data-clear-jtl-filters data-clear-url="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Limpiar</button>
                     </form>
 
                     <?php if ($error !== null): ?>
@@ -1706,7 +1895,11 @@ final class DashboardController
                             </thead>
                             <tbody>
                                 <?php foreach ($jtlOrders as $order): ?>
-                                    <tr>
+                                    <tr
+                                        data-jtl-contact="<?= $this->e($order['contact'] ?? '') ?>"
+                                        data-jtl-mapped-customer="<?= $this->e($order['packiyo_customer_id'] ?? '') ?>"
+                                        data-jtl-mapped="<?= !empty($order['mapped']) ? '1' : '0' ?>"
+                                    >
                                         <td data-sort-value="<?= $this->e(($order['number'] ?? '') ?: ($order['id'] ?? '')) ?>">
                                             <strong><?= $this->e(($order['number'] ?? '') ?: ($order['id'] ?? '-')) ?></strong>
                                             <div class="muted">ID <?= $this->e(($order['id'] ?? '') ?: '-') ?></div>
@@ -2484,7 +2677,7 @@ final class DashboardController
     {
         $database = Config::get('database.mysql', []);
         $users = (new AppUser())->all();
-        $invitations = (new UserInvitation())->recent(50);
+        $invitations = (new UserInvitation())->recent(500);
         $workflowEvents = $this->cachedSalesOrderWorkflowEvents();
         $workflowEventsReadAt = $this->cachedSessionString('jtl_sales_order_workflow_events_read_at');
 

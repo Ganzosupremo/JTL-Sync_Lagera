@@ -21,6 +21,7 @@ $jtlHtml = (string) $renderJtlOrders->invoke(
         'source' => 'Temu',
         'source_type' => 'Marketplace',
         'mapped' => true,
+        'packiyo_customer_id' => '42',
         'packiyo_customer' => 'Ada Shop #42',
         'sync_state' => 'confirmed',
         'packiyo_order_id' => 'packiyo-100',
@@ -45,6 +46,10 @@ assertContainsText('data-sort-key="status"', $jtlHtml, 'El estado JTL debe ser o
 assertContainsText('data-sort-value="2026-08-25T10:30:00+00:00"', $jtlHtml, 'La fecha JTL debe conservar un valor de ordenamiento.');
 assertContainsText('<th scope="col" aria-sort="none"><button class="table-sort"', $jtlHtml, 'El estado de ordenamiento debe pertenecer al encabezado de columna.');
 assertNotContainsText('data-sort-type="text" aria-sort=', $jtlHtml, 'Los botones de ordenamiento no deben declarar aria-sort.');
+assertContainsText('data-client-filter-table="jtl-orders"', $jtlHtml, 'El filtro JTL debe estar conectado al filtrado local.');
+assertContainsText('data-jtl-contact="Ada Lovelace"', $jtlHtml, 'Cada orden debe exponer el cliente para el filtro local.');
+assertContainsText('data-jtl-mapped-customer="42"', $jtlHtml, 'Cada orden debe exponer el cliente Packiyo para el filtro local.');
+assertContainsText('data-clear-jtl-filters', $jtlHtml, 'El filtro local JTL debe poder limpiarse sin recargar.');
 
 $renderFulfillment = new ReflectionMethod(DashboardController::class, 'renderFulfillment');
 $renderFulfillment->setAccessible(true);
@@ -83,6 +88,13 @@ $controllerSource = file_get_contents(dirname(__DIR__) . '/app/Controllers/Dashb
 assertContainsText("document.querySelectorAll('[data-sort-table]')", (string) $controllerSource, 'El dashboard debe inicializar el ordenamiento local.');
 assertContainsText("direction === 1 ? '↑' : '↓'", (string) $controllerSource, 'El dashboard debe mostrar la direccion de ordenamiento activa.');
 assertContainsText('.scroll-table > table', (string) $controllerSource, 'En movil, el contenedor desplazable debe seguir siendo el unico contexto de scroll de la tabla.');
+assertContainsText("document.querySelectorAll('table')", (string) $controllerSource, 'Todas las tablas deben habilitar busqueda local.');
+assertContainsText(".normalize('NFD')", (string) $controllerSource, 'La busqueda debe ignorar acentos.');
+assertContainsText("tokens.every((token) => text.includes(token))", (string) $controllerSource, 'La busqueda debe aceptar varias palabras en cualquier columna.');
+assertContainsText("jtlFilterForm.addEventListener('submit', (event) =>", (string) $controllerSource, 'El filtro JTL debe interceptar el envio para evitar recargar la pagina.');
+assertContainsText("event.preventDefault();", (string) $controllerSource, 'Los filtros locales no deben enviar peticiones al servidor.');
+assertContainsText("control.value ?? ''", (string) $controllerSource, 'La busqueda debe incluir IDs y valores guardados en controles ocultos.');
+assertContainsText('Sin coincidencias para esta búsqueda.', (string) $controllerSource, 'La busqueda debe informar cuando no encuentra filas.');
 
 echo "order_tables_test: OK\n";
 
