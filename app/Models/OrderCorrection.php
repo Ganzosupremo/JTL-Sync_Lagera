@@ -152,6 +152,24 @@ final class OrderCorrection
         return array_map([$this, 'decodeLine'], $statement->get_result()->fetch_all(MYSQLI_ASSOC));
     }
 
+    /** @return array{jtl_matches:int,packiyo_assignments:int} */
+    public function summary(string $jobId): array
+    {
+        $statement = $this->connection()->prepare(
+            "SELECT
+                COALESCE(SUM(CASE WHEN TRIM(COALESCE(jtl_name, '')) <> '' THEN 1 ELSE 0 END), 0) AS jtl_matches,
+                COALESCE(SUM(CASE WHEN TRIM(COALESCE(proposed_product_id, '')) <> '' THEN 1 ELSE 0 END), 0) AS packiyo_assignments
+             FROM order_correction_lines WHERE job_id = ?"
+        );
+        $statement->bind_param('s', $jobId);
+        $statement->execute();
+        $row = $statement->get_result()->fetch_assoc();
+        return [
+            'jtl_matches' => (int) ($row['jtl_matches'] ?? 0),
+            'packiyo_assignments' => (int) ($row['packiyo_assignments'] ?? 0),
+        ];
+    }
+
     /** @return array<string, mixed>|null */
     public function line(int $id): ?array
     {

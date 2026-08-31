@@ -36,7 +36,7 @@ final class OrderCorrectionService
     }
 
     /** @return array<string, mixed> */
-    public function continue(string $jobId, int $maxPages = 2, float $timeBudgetSeconds = 15.0): array
+    public function continue(string $jobId, int $maxPages = 10, float $timeBudgetSeconds = 20.0): array
     {
         $job = $this->requireJob($jobId);
         if ((string) $job['status'] === 'completed') {
@@ -116,6 +116,10 @@ final class OrderCorrectionService
         return [
             'job' => $job,
             'lines' => $lines,
+            'summary' => $job !== null ? $this->store()->summary((string) $job['id']) : [
+                'jtl_matches' => 0,
+                'packiyo_assignments' => 0,
+            ],
             'catalogs' => $catalogs,
             'write_enabled' => $this->writeEnabled(),
         ];
@@ -299,7 +303,7 @@ final class OrderCorrectionService
         $attributes = is_array($resource['attributes'] ?? null) ? $resource['attributes'] : $resource;
         foreach (['order_item_data', 'order_items', 'orderItems', 'line_items', 'lineItems', 'items'] as $key) {
             if (isset($attributes[$key]) && is_array($attributes[$key])) {
-                return self::normalizeLineList($attributes[$key]);
+                return self::normalizeLineList($attributes[$key], $included);
             }
         }
         foreach (['order_items', 'orderItems', 'line_items', 'lineItems', 'items'] as $key) {
@@ -329,7 +333,7 @@ final class OrderCorrectionService
                 }
             }
             if ($lines !== []) {
-                return self::normalizeLineList($lines);
+                return self::normalizeLineList($lines, $included);
             }
         }
         return [];
@@ -346,7 +350,7 @@ final class OrderCorrectionService
             if (!isset($items[$index])) {
                 throw new RuntimeException('La linea original ya no existe en Packiyo.');
             }
-            $currentSku = self::lineString($items[$index], ['sku', 'SKU']);
+            $currentSku = self::itemSku($items[$index]);
             if (!self::isPlaceholderSku($currentSku) || strcasecmp($currentSku, (string) $line['original_sku']) !== 0) {
                 throw new RuntimeException('La linea provisional cambio desde el analisis.');
             }
@@ -443,13 +447,13 @@ final class OrderCorrectionService
         $jtl = $this->jtlContext($orderId, $number, $customerId);
         $detected = 0;
         foreach ($items as $index => $item) {
-            $sku = self::lineString($item, ['sku', 'SKU']);
+            $sku = self::itemSku($item);
             if (!self::isPlaceholderSku($sku)) {
                 continue;
             }
             $jtlItem = self::matchJtlItem($item, $index, $jtl['items']);
-            $sourceName = self::lineString($jtlItem, ['name', 'Name', 'title', 'description'])
-                ?: self::lineString($item, ['name', 'Name', 'title']);
+            $jtlName = self::lineString($jtlItem, ['name', 'Name', 'title', 'description']);
+            $sourceName = $jtlName ?: self::lineString($item, ['name', 'Name', 'title']);
             $suggestions = [];
             $proposed = null;
             if ($customerId !== '' && $sourceName !== '') {
@@ -493,7 +497,7 @@ final class OrderCorrectionService
                 'original_external_id' => self::lineString($item, ['external_id', 'externalId', 'id']),
                 'original_sku' => $sku,
                 'original_name' => self::lineString($item, ['name', 'Name', 'title']),
-                'jtl_name' => $sourceName,
+                'jtl_name' => $jtlName,
                 'jtl_sku' => self::lineString($jtlItem, ['sku', 'SKU', 'articleNumber', 'itemNumber']),
                 'quantity' => self::lineNumber($item, ['quantity', 'qty', 'amount'], 1),
                 'price' => self::lineNumber($item, ['price', 'unit_price', 'unitPrice'], 0),
@@ -552,7 +556,7 @@ final class OrderCorrectionService
                         break;
                     }
                 }
-                $actualSku = self::lineString($after[$index], ['sku', 'SKU']);
+                $actualSku = self::itemSku($after[$index]);
                 $actualProduct = self::lineString($after[$index], ['product_id', 'packiyo_product_id', 'productId']);
                 if ($line === null
                     || strcasecmp($actualSku, (string) $line['proposed_sku']) !== 0
@@ -577,7 +581,7 @@ final class OrderCorrectionService
         foreach ($corrections as $line) {
             $index = (int) $line['line_index'];
             if (!isset($items[$index])
-                || strcasecmp(self::lineString($items[$index], ['sku', 'SKU']), (string) $line['proposed_sku']) !== 0
+                || strcasecmp(self::itemSku($items[$index]), (string) $line['proposed_sku']) !== 0
                 || self::lineString($items[$index], ['product_id', 'packiyo_product_id', 'productId']) !== (string) $line['proposed_product_id']
                 || abs(self::lineNumber($items[$index], ['quantity', 'qty', 'amount'], 0) - (float) $line['quantity']) > 0.0001
                 || abs(self::lineNumber($items[$index], ['price', 'unit_price', 'unitPrice'], -1) - (float) $line['price']) > 0.0001) {
@@ -707,8 +711,8 @@ final class OrderCorrectionService
         return is_array($data) ? $data : [];
     }
 
-    /** @param array<int, mixed> $items @return array<int, array<string, mixed>> */
-    private static function normalizeLineList(array $items): array
+    /** @param array<int, mixed> $items @param array<int, mixed> $included @return array<int, array<string, mixed>> */
+    private static function normalizeLineList(array $items, array $included = []): array
     {
         $result = [];
         foreach ($items as $item) {
@@ -719,13 +723,64 @@ final class OrderCorrectionService
             if (isset($item['id']) && !isset($attributes['id'])) {
                 $attributes['id'] = (string) $item['id'];
             }
-            $productId = $item['relationships']['product']['data']['id'] ?? null;
+            $relatedProduct = $item['relationships']['product']['data'] ?? null;
+            if (is_array($relatedProduct)) {
+                $attributes = self::mergeProductSnapshot($attributes, $relatedProduct);
+            }
+            $productId = $relatedProduct['id']
+                ?? $attributes['product_id']
+                ?? $attributes['productId']
+                ?? $attributes['packiyo_product_id']
+                ?? null;
             if (is_scalar($productId) && !isset($attributes['product_id'])) {
                 $attributes['product_id'] = (string) $productId;
+            }
+            foreach (['product', 'product_data', 'productData', 'inventory_item', 'inventoryItem'] as $productKey) {
+                if (is_array($attributes[$productKey] ?? null)) {
+                    $attributes = self::mergeProductSnapshot($attributes, $attributes[$productKey]);
+                }
+            }
+            if (is_scalar($productId)) {
+                foreach ($included as $candidate) {
+                    if (!is_array($candidate) || (string) ($candidate['id'] ?? '') !== (string) $productId) {
+                        continue;
+                    }
+                    $candidateType = strtolower((string) ($candidate['type'] ?? ''));
+                    if ($candidateType !== '' && !str_contains($candidateType, 'product')) {
+                        continue;
+                    }
+                    $candidateAttributes = is_array($candidate['attributes'] ?? null) ? $candidate['attributes'] : $candidate;
+                    $attributes = self::mergeProductSnapshot($attributes, $candidateAttributes);
+                    break;
+                }
             }
             $result[] = $attributes;
         }
         return $result;
+    }
+
+    /** @param array<string, mixed> $line @param array<string, mixed> $product @return array<string, mixed> */
+    private static function mergeProductSnapshot(array $line, array $product): array
+    {
+        if (self::itemSku($line) === '') {
+            $sku = self::itemSku($product);
+            if ($sku !== '') {
+                $line['sku'] = $sku;
+            }
+        }
+        if (self::lineString($line, ['name', 'Name', 'title', 'product_name', 'productName']) === '') {
+            $name = self::lineString($product, ['name', 'Name', 'title', 'product_name', 'productName']);
+            if ($name !== '') {
+                $line['name'] = $name;
+            }
+        }
+        return $line;
+    }
+
+    /** @param array<string, mixed> $item */
+    private static function itemSku(array $item): string
+    {
+        return self::lineString($item, ['sku', 'SKU', 'product_sku', 'productSku', 'item_sku', 'itemSku']);
     }
 
     /** @param array<string, mixed> $resource @param array<string, mixed> $attributes */

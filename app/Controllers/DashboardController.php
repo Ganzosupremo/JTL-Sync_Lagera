@@ -2741,6 +2741,7 @@ final class DashboardController
     {
         $job = is_array($data['job'] ?? null) ? $data['job'] : null;
         $lines = is_array($data['lines'] ?? null) ? $data['lines'] : [];
+        $correctionSummary = is_array($data['summary'] ?? null) ? $data['summary'] : [];
         $catalogs = is_array($data['catalogs'] ?? null) ? $data['catalogs'] : [];
         $jobId = (string) ($job['id'] ?? '');
         $writeEnabled = !empty($data['write_enabled']);
@@ -2773,12 +2774,25 @@ final class DashboardController
                 <?php else: ?>
                     <div class="summary">
                         <div class="metric"><span>Estado</span><strong><?= $this->e($job['status']) ?></strong></div>
-                        <div class="metric"><span>Pagina siguiente</span><strong><?= $this->e($job['cursor_page']) ?></strong></div>
                         <div class="metric"><span>Ordenes revisadas</span><strong><?= $this->e($job['scanned_orders']) ?></strong></div>
-                        <div class="metric"><span>Lineas detectadas</span><strong><?= $this->e($job['detected_lines']) ?></strong></div>
+                        <div class="metric"><span>Lineas JTL-LINE encontradas</span><strong><?= $this->e($job['detected_lines']) ?></strong></div>
+                        <div class="metric"><span>Coincidencias con JTL</span><strong><?= $this->e($correctionSummary['jtl_matches'] ?? 0) ?></strong></div>
+                        <div class="metric"><span>Producto Packiyo asignado</span><strong><?= $this->e($correctionSummary['packiyo_assignments'] ?? 0) ?></strong></div>
                         <div class="metric"><span>Desde</span><strong><?= $this->e($job['window_start']) ?></strong></div>
                         <div class="metric"><span>Actualizado</span><strong><?= $this->e($job['updated_at']) ?></strong></div>
                     </div>
+                    <?php if (($job['status'] ?? '') === 'running'): ?>
+                        <div class="notice">
+                            <strong>Analisis en curso.</strong>
+                            Se revisaron <?= $this->e($job['scanned_orders']) ?> ordenes y se encontraron <?= $this->e($job['detected_lines']) ?> lineas JTL-LINE hasta ahora.
+                            El resultado todavia no es definitivo; continua con el siguiente lote hasta que el estado sea completed.
+                        </div>
+                    <?php elseif (($job['status'] ?? '') === 'completed'): ?>
+                        <div class="notice">
+                            <strong>Analisis completado.</strong>
+                            Se revisaron <?= $this->e($job['scanned_orders']) ?> ordenes, se encontraron <?= $this->e($job['detected_lines']) ?> lineas JTL-LINE y <?= $this->e($correctionSummary['jtl_matches'] ?? 0) ?> coincidencias con JTL.
+                        </div>
+                    <?php endif; ?>
                     <?php if (!empty($job['last_error'])): ?>
                         <div class="notice"><strong>Ultimo error:</strong> <?= $this->e($job['last_error']) ?></div>
                     <?php endif; ?>
@@ -2816,7 +2830,15 @@ final class DashboardController
                         <button class="button small" type="submit">Filtrar</button>
                     </form>
                     <?php if ($lines === []): ?>
-                        <div class="empty">No hay lineas que coincidan con los filtros actuales.</div>
+                        <div class="empty">
+                            <?php if (($job['status'] ?? '') === 'running'): ?>
+                                Aun no se encontraron lineas JTL-LINE en las ordenes revisadas. El analisis sigue en curso.
+                            <?php elseif ((int) ($job['detected_lines'] ?? 0) === 0): ?>
+                                El analisis termino sin encontrar lineas JTL-LINE en el periodo seleccionado.
+                            <?php else: ?>
+                                No hay lineas que coincidan con los filtros actuales.
+                            <?php endif; ?>
+                        </div>
                     <?php else: ?>
                         <div class="scroll-table order-table-scroll">
                             <table data-sort-table="order-corrections">

@@ -42,14 +42,14 @@ final class OrderMapping
         $statement = $number !== '' && $customerId !== ''
             ? $this->connection()->prepare(
                 'SELECT * FROM order_mappings
-                 WHERE (packiyo_order_id = ? OR packiyo_order_number = ?) AND packiyo_customer_id = ?
-                 ORDER BY id DESC LIMIT 1'
+                 WHERE packiyo_order_id = ? OR (packiyo_order_number = ? AND packiyo_customer_id = ?)
+                 ORDER BY CASE WHEN packiyo_order_id = ? THEN 0 ELSE 1 END, id DESC LIMIT 1'
             )
             : $this->connection()->prepare(
                 'SELECT * FROM order_mappings WHERE packiyo_order_id = ? ORDER BY id DESC LIMIT 1'
             );
         if ($number !== '' && $customerId !== '') {
-            $statement->bind_param('sss', $id, $number, $customerId);
+            $statement->bind_param('ssss', $id, $number, $customerId, $id);
         } else {
             $statement->bind_param('s', $id);
         }

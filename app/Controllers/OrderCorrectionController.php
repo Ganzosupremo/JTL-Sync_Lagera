@@ -18,7 +18,14 @@ final class OrderCorrectionController
                 max(1, min(365, (int) ($_POST['days'] ?? 180))),
                 (new Auth())->currentUserId()
             );
-            $this->redirect((string) $job['id'], 'Analisis iniciado. Continua por lotes hasta completarlo.');
+            $this->redirect(
+                (string) $job['id'],
+                sprintf(
+                    'Analisis iniciado: %d ordenes revisadas y %d lineas JTL-LINE encontradas hasta ahora. Continua por lotes hasta completarlo.',
+                    (int) ($job['scanned_orders'] ?? 0),
+                    (int) ($job['detected_lines'] ?? 0)
+                )
+            );
         } catch (Throwable $exception) {
             $this->redirect('', $exception->getMessage());
         }
@@ -31,8 +38,16 @@ final class OrderCorrectionController
         try {
             $job = (new OrderCorrectionService())->continue($jobId);
             $message = (string) ($job['status'] ?? '') === 'completed'
-                ? 'Analisis completado.'
-                : 'Lote analizado. Pulsa continuar para procesar el siguiente.';
+                ? sprintf(
+                    'Analisis completado: %d ordenes revisadas y %d lineas JTL-LINE encontradas.',
+                    (int) ($job['scanned_orders'] ?? 0),
+                    (int) ($job['detected_lines'] ?? 0)
+                )
+                : sprintf(
+                    'Lote analizado: %d ordenes revisadas y %d lineas JTL-LINE encontradas hasta ahora. Continua para terminar.',
+                    (int) ($job['scanned_orders'] ?? 0),
+                    (int) ($job['detected_lines'] ?? 0)
+                );
             $this->redirect($jobId, $message);
         } catch (Throwable $exception) {
             $this->redirect($jobId, $exception->getMessage());
