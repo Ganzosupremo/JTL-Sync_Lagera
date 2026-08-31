@@ -1,7 +1,11 @@
-modules = ["php-8.2"]
+modules = ["php-8.2", "python-base-3.13"]
 
 [nix]
 channel = "stable-25_05"
 
 [agent]
 expertMode = true
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 60000

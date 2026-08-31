@@ -11,11 +11,15 @@ use App\Models\FulfillmentSync;
 use App\Models\OrderMapping;
 use App\Support\HttpException;
 use App\Support\Logger;
+use App\Support\Setting;
 use RuntimeException;
 use Throwable;
 
 final class FulfillmentSyncService
 {
+    /** Wall-clock deadline (microtime(true) seconds) for the current sync() call, or null when unbounded. */
+    private ?float $deadline = null;
+
     public function __construct(
         private readonly ?OrderMapping $orders = null,
         private readonly ?FulfillmentSync $fulfillments = null,
@@ -41,13 +45,32 @@ final class FulfillmentSyncService
             'message' => '',
         ];
 
+        // Packiyo/JTL calls happen one order at a time over the network, so a large pending queue can easily
+        // run past a browser or reverse-proxy request timeout. Rather than trying to process everything in one
+        // HTTP request, stop early once the budget is spent: already-synced orders are skipped next time
+        // (see OrderMapping::pendingFulfillment()), so the remaining ones simply pick up on the next click or
+        // cron tick instead of the whole request failing with a timeout.
+        $budgetSeconds = max(1, (int) Setting::get('FULFILLMENT_SYNC_TIME_BUDGET_SECONDS', 20));
+        $this->deadline = microtime(true) + $budgetSeconds;
+
         $this->log()->info(
             'fulfillment_sync',
             'Fulfillment sync started' . ($packiyoCustomerId !== null ? ' for Packiyo customer ' . $packiyoCustomerId : '') . '.'
         );
         $jtlUnavailableMessage = null;
+        $stoppedForTimeBudget = false;
 
-        foreach ($this->orderModel()->all($limit, $packiyoCustomerId) as $mapping) {
+        foreach ($this->orderModel()->pendingFulfillment($limit, $packiyoCustomerId) as $mapping) {
+            if ($summary['checked'] > 0 && $this->timeBudgetExceeded()) {
+                $stoppedForTimeBudget = true;
+                $this->log()->info(
+                    'fulfillment_sync',
+                    'Fulfillment sync paused after ' . $budgetSeconds . 's to avoid a request timeout; '
+                    . 'the remaining pending orders will be picked up on the next run.'
+                );
+                break;
+            }
+
             $summary['checked']++;
 
             try {
@@ -73,6 +96,7 @@ final class FulfillmentSyncService
 
                     try {
                         $this->sendShipmentToJtl($mapping, $shipment);
+                        $summary['synced']++;
                     } catch (Throwable $exception) {
                         if ($this->jtlClient()->isReachabilityException($exception)) {
                             throw new JtlUnavailableDuringFulfillmentException(
@@ -82,10 +106,23 @@ final class FulfillmentSyncService
                             );
                         }
 
-                        throw $exception;
+                        // A non-reachability failure (e.g. no matching JTL delivery note yet) used to only be
+                        // logged and counted in this run's ephemeral summary, then disappear: nothing was saved,
+                        // so the order never showed up anywhere in the dashboard even though it kept silently
+                        // failing on every run. Persisting it here as a `failed` fulfillment_syncs row makes it
+                        // visible (and filterable by customer) in the Fulfillment tab, while still letting it be
+                        // retried automatically next run: exists()/pendingFulfillment() only treat `synced` and
+                        // `already_present` as done, not `failed`.
+                        $summary['failed']++;
+                        $message = $this->friendlyException($exception);
+                        $this->log()->error(
+                            'fulfillment_sync',
+                            'Unable to sync fulfillment for JTL order '
+                            . (string) ($mapping['jtl_order_number'] ?: $mapping['jtl_order_id'])
+                            . ': ' . $message
+                        );
+                        $this->saveFailedAttempt($mapping, $shipment, $message);
                     }
-
-                    $summary['synced']++;
                 }
             } catch (JtlUnavailableDuringFulfillmentException $exception) {
                 $summary['failed']++;
@@ -112,7 +149,13 @@ final class FulfillmentSyncService
                 $summary['synced'],
                 $summary['skipped'],
                 $summary['failed']
-            );
+            )
+            . ($stoppedForTimeBudget
+                ? sprintf(
+                    ' Se detuvo tras %ds para evitar un timeout; quedan mas ordenes pendientes y se revisaran en la siguiente corrida (cron o un nuevo click).',
+                    $budgetSeconds
+                )
+                : '');
 
         $this->stateModel()->markSuccess('fulfillment_sync', date('Y-m-d H:i:s'), $summary['message']);
         $this->log()->info('fulfillment_sync', $summary['message']);
@@ -225,9 +268,19 @@ final class FulfillmentSyncService
             throw new RuntimeException('JTL delivery note has no usable id.');
         }
 
+        $orderLabel = $jtlOrderNumber !== null && $jtlOrderNumber !== '' ? $jtlOrderNumber : $jtlOrderId;
+
         foreach ($this->jtlClient()->getDeliveryNotePackages($deliveryNoteId) as $package) {
             if ($this->stringValue($package, ['TrackingID', 'trackingID', 'trackingId', 'tracking_number']) === $shipment['tracking_number']) {
-                $this->saveFulfillment($mapping, $shipment, $deliveryNoteId, $this->stringValue($package, ['Id', 'id', 'PackageId', 'packageId']), 'already_present');
+                $shippedError = $this->markDeliveryNoteShipped($deliveryNoteId, $orderLabel);
+                $this->saveFulfillment(
+                    $mapping,
+                    $shipment,
+                    $deliveryNoteId,
+                    $this->stringValue($package, ['Id', 'id', 'PackageId', 'packageId']),
+                    $shippedError === null ? 'already_present' : 'shipped_pending',
+                    $shippedError
+                );
                 return;
             }
         }
@@ -238,14 +291,62 @@ final class FulfillmentSyncService
             'Comment' => $this->shipmentComment($shipment),
         ]]);
 
+        $shippedError = $this->markDeliveryNoteShipped($deliveryNoteId, $orderLabel);
+
         $createdPackage = $this->firstDeliveryNote($this->collection($response));
         $this->saveFulfillment(
             $mapping,
             $shipment,
             $deliveryNoteId,
             $createdPackage !== null ? $this->stringValue($createdPackage, ['Id', 'id', 'PackageId', 'packageId']) : null,
-            'synced'
+            $shippedError === null ? 'synced' : 'shipped_pending',
+            $shippedError
         );
+    }
+
+    /**
+     * JTL does not accept a shipping-method/carrier field on delivery note packages (it is a read-only value JTL
+     * derives itself from the order). What BOL/marketplace fulfillment actually depends on is JTL's own delivery
+     * note "Shipped" workflow event, which this triggers explicitly so JTL-Worker reports the order as fulfilled.
+     *
+     * A non-reachability failure here (e.g. missing scope) does not throw: the tracking package itself was
+     * already sent to JTL successfully, so we still record that. Instead the fulfillment row is saved with
+     * status `shipped_pending` and the error message (see sendShipmentToJtl callers). FulfillmentSync::exists()
+     * does not treat `shipped_pending` as done, so the next sync run naturally retries this same shipment's
+     * Shipped event until it succeeds - without resending the tracking number.
+     *
+     * @return string|null null if the Shipped event was triggered (or the feature is intentionally disabled),
+     *                      otherwise the friendly error message to persist and retry on the next sync run.
+     */
+    private function markDeliveryNoteShipped(string $deliveryNoteId, string $orderLabel): ?string
+    {
+        if (!$this->jtlClient()->markDeliveryNoteShippedEnabled()) {
+            return null;
+        }
+
+        try {
+            $this->jtlClient()->triggerDeliveryNoteShippedWorkflowEvent($deliveryNoteId);
+            $this->log()->info(
+                'fulfillment_sync',
+                'JTL delivery note ' . $deliveryNoteId . ' de la orden ' . $orderLabel
+                . ' fue marcado como Shipped para que el marketplace lo vea como fulfilled.'
+            );
+
+            return null;
+        } catch (Throwable $exception) {
+            if ($this->jtlClient()->isReachabilityException($exception)) {
+                throw $exception;
+            }
+
+            $message = $this->friendlyException($exception);
+            $this->log()->error(
+                'fulfillment_sync',
+                'No se pudo marcar como Shipped el delivery note ' . $deliveryNoteId . ' de la orden ' . $orderLabel
+                . ' (el tracking si se envio a JTL, se reintentara marcar como Shipped en la proxima corrida): ' . $message
+            );
+
+            return $message;
+        }
     }
 
     private function deliveryNoteForOrder(string $jtlOrderId, ?string $jtlOrderNumber): ?array
@@ -278,6 +379,13 @@ final class FulfillmentSyncService
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             if ($attempt > 1 && $delaySeconds > 0) {
+                if ($this->timeBudgetExceeded()) {
+                    // Don't let one order's retry-with-sleep loop burn the whole request's time budget;
+                    // give up for now so other pending orders still get a chance this run, and retry this
+                    // one (no fulfillment row was saved) on the next sync.
+                    break;
+                }
+
                 sleep($delaySeconds);
             }
 
@@ -311,7 +419,8 @@ final class FulfillmentSyncService
         array $shipment,
         string $deliveryNoteId,
         ?string $packageId,
-        string $status
+        string $status,
+        ?string $lastError = null
     ): void {
         $this->fulfillmentModel()->upsert([
             'jtl_order_id' => (string) $mapping['jtl_order_id'],
@@ -328,6 +437,7 @@ final class FulfillmentSyncService
             'jtl_delivery_note_id' => $deliveryNoteId,
             'jtl_package_id' => $packageId,
             'status' => $status,
+            'last_error' => $lastError,
             'synced_at' => date('Y-m-d H:i:s'),
         ]);
 
@@ -335,6 +445,37 @@ final class FulfillmentSyncService
             'fulfillment_sync',
             'Sent tracking ' . $shipment['tracking_number'] . ' to JTL order ' . (string) $mapping['jtl_order_id'] . '.'
         );
+    }
+
+    /**
+     * Records a failed attempt to send an already-known shipment/tracking to JTL (e.g. no matching delivery
+     * note yet) so it shows up in the Fulfillment tab instead of silently vanishing. Uses the same
+     * (jtl_order_id, tracking_number) upsert key as saveFulfillment(), so a later successful retry simply
+     * overwrites this row with status `synced`/`already_present`.
+     *
+     * @param array<string, mixed> $mapping
+     * @param array<string, string> $shipment
+     */
+    private function saveFailedAttempt(array $mapping, array $shipment, string $lastError): void
+    {
+        $this->fulfillmentModel()->upsert([
+            'jtl_order_id' => (string) $mapping['jtl_order_id'],
+            'jtl_order_number' => $mapping['jtl_order_number'] ?? null,
+            'packiyo_order_id' => (string) $mapping['packiyo_order_id'],
+            'packiyo_customer_id' => $mapping['packiyo_customer_id'] ?? null,
+            'packiyo_customer_name' => $mapping['packiyo_customer_name'] ?? null,
+            'packiyo_shipment_id' => $shipment['packiyo_shipment_id'],
+            'packiyo_tracking_id' => $shipment['packiyo_tracking_id'],
+            'tracking_number' => $shipment['tracking_number'],
+            'tracking_url' => $shipment['tracking_url'],
+            'carrier' => $shipment['carrier'],
+            'shipped_at' => $this->mysqlDate($shipment['shipped_at']),
+            'jtl_delivery_note_id' => null,
+            'jtl_package_id' => null,
+            'status' => 'failed',
+            'last_error' => $lastError,
+            'synced_at' => date('Y-m-d H:i:s'),
+        ]);
     }
 
     /** @param array<string, mixed> $response */
@@ -611,10 +752,15 @@ final class FulfillmentSyncService
     private function friendlyException(Throwable $exception): string
     {
         if ($exception instanceof HttpException && $exception->statusCode() === 403) {
-            return 'JTL rejected the request with 403. Re-register this app in JTL and approve deliverynotes.read, deliverynotes.write, salesorders.write, salesorder.triggersalesorderworkflowevent and salesorder.triggersalesorderworkflow scopes.';
+            return 'JTL rejected the request with 403. Re-register this app in JTL and approve deliverynotes.read, deliverynotes.write, deliverynote.triggerdeliverynoteworkflow, salesorders.write, salesorder.triggersalesorderworkflowevent and salesorder.triggersalesorderworkflow scopes.';
         }
 
         return $exception->getMessage();
+    }
+
+    private function timeBudgetExceeded(): bool
+    {
+        return $this->deadline !== null && microtime(true) >= $this->deadline;
     }
 
     private function orderModel(): OrderMapping

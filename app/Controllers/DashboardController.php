@@ -295,6 +295,7 @@ final class DashboardController
             --accent: #2563eb;
             --ok: #16803c;
             --warn: #a16207;
+            --danger: #b42318;
             --bad: #b42318;
         }
 
@@ -487,6 +488,11 @@ final class DashboardController
         .status.missing_config {
             background: #fff4df;
             color: var(--warn);
+        }
+
+        .status.failed {
+            background: #fdecea;
+            color: var(--danger);
         }
 
         .status.registration_pending {
@@ -696,14 +702,22 @@ final class DashboardController
         }
 
         .fulfillment-sync-form {
+            align-items: flex-end;
             display: flex;
             flex: 0 0 auto;
-            justify-content: flex-end;
+            flex-direction: column;
+            gap: 6px;
             margin: 0;
         }
 
         .fulfillment-sync-form .button {
             min-width: 190px;
+        }
+
+        .fulfillment-sync-hint {
+            font-size: 12px;
+            max-width: 260px;
+            text-align: right;
         }
 
         .button-link {
@@ -959,6 +973,11 @@ final class DashboardController
             .fulfillment-sync-form,
             .fulfillment-sync-form .button {
                 width: 100%;
+            }
+
+            .fulfillment-sync-hint {
+                max-width: 100%;
+                text-align: left;
             }
 
             .section-head {
@@ -2038,8 +2057,11 @@ final class DashboardController
                         <form class="fulfillment-sync-form" action="<?= $this->e($this->url('/fulfillment/sync')) ?>" method="post">
                             <input type="hidden" name="packiyo_customer_id" value="<?= $this->e($selectedCustomerId) ?>">
                             <button class="button" type="submit">
-                                <?= $selectedCustomerId !== '' ? 'Enviar tracking filtrado a JTL' : 'Enviar tracking a JTL' ?>
+                                <?= $selectedCustomerId !== '' ? 'Buscar tracking nuevo (cliente filtrado)' : 'Buscar tracking nuevo ahora' ?>
                             </button>
+                            <span class="muted fulfillment-sync-hint">
+                                Revisa Packiyo por tracking nuevo y lo envia a JTL al instante, sin esperar al cron. El resultado aparece arriba de la pagina.
+                            </span>
                         </form>
                     </div>
 
@@ -2095,7 +2117,20 @@ final class DashboardController
                                                 <div class="muted">Package <?= $this->e($row['jtl_package_id']) ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td data-sort-value="<?= $this->e($row['status'] ?? '') ?>"><span class="status <?= (($row['status'] ?? '') === 'synced' || ($row['status'] ?? '') === 'already_present') ? 'synced' : 'missing_config' ?>"><?= $this->e($row['status'] ?? '-') ?></span></td>
+                                        <td data-sort-value="<?= $this->e($row['status'] ?? '') ?>">
+                                            <?php
+                                                $fulfillmentStatus = (string) ($row['status'] ?? '');
+                                                $fulfillmentStatusClass = match (true) {
+                                                    $fulfillmentStatus === 'synced' || $fulfillmentStatus === 'already_present' => 'synced',
+                                                    $fulfillmentStatus === 'failed' => 'failed',
+                                                    default => 'missing_config',
+                                                };
+                                            ?>
+                                            <span class="status <?= $this->e($fulfillmentStatusClass) ?>"><?= $this->e($fulfillmentStatus ?: '-') ?></span>
+                                            <?php if ($fulfillmentStatus === 'failed' && ($row['last_error'] ?? '') !== ''): ?>
+                                                <div class="muted"><?= $this->e($row['last_error']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
                                         <td data-sort-value="<?= $this->e($row['synced_at'] ?? '') ?>"><?= $this->e($row['synced_at'] ?? '-') ?></td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -2883,7 +2918,6 @@ final class DashboardController
             'JTL_DELIVERY_NOTE_PACKAGES_ENDPOINT',
             'JTL_SALES_ORDER_WORKFLOW_EVENTS_ENDPOINT',
             'JTL_SALES_ORDER_WORKFLOW_TRIGGER_ENDPOINT',
-            'JTL_SALES_ORDER_WORKFLOW_TRIGGER_BY_ID_ENDPOINT',
         ], true);
 
         ob_start();
