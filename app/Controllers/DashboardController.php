@@ -21,6 +21,7 @@ use App\Models\SyncLog;
 use App\Models\UserInvitation;
 use App\Services\MappingService;
 use App\Services\OrderDetailService;
+use App\Services\OrderCorrectionService;
 use App\Services\OrderPreparationService;
 use App\Services\PackiyoCustomerResolver;
 use App\Services\ProductImportService;
@@ -64,6 +65,8 @@ final class DashboardController
         $productNameMappings = [];
         $productNameCatalog = [];
         $productNameCatalogError = null;
+        $correctionData = ['job' => null, 'lines' => [], 'catalogs' => [], 'write_enabled' => false];
+        $correctionError = null;
         $orderReference = is_scalar($_GET['order_reference'] ?? null) ? trim((string) $_GET['order_reference']) : '';
         $selectedNameCustomerId = is_scalar($_GET['name_customer_id'] ?? null) ? trim((string) $_GET['name_customer_id']) : '';
         $jtlOrderCustomerFilter = is_scalar($_GET['jtl_customer'] ?? null) ? trim((string) $_GET['jtl_customer']) : '';
@@ -160,6 +163,22 @@ final class DashboardController
             }
         }
 
+        if ($tab === 'order-corrections') {
+            try {
+                $correctionData = (new OrderCorrectionService())->dashboard(
+                    is_scalar($_GET['correction_job'] ?? null) ? trim((string) $_GET['correction_job']) : null,
+                    [
+                        'customer' => is_scalar($_GET['correction_customer'] ?? null) ? trim((string) $_GET['correction_customer']) : '',
+                        'status' => is_scalar($_GET['correction_status'] ?? null) ? trim((string) $_GET['correction_status']) : '',
+                        'source' => is_scalar($_GET['correction_source'] ?? null) ? trim((string) $_GET['correction_source']) : '',
+                        'result' => is_scalar($_GET['correction_result'] ?? null) ? trim((string) $_GET['correction_result']) : '',
+                    ]
+                );
+            } catch (\Throwable $exception) {
+                $correctionError = $exception->getMessage();
+            }
+        }
+
         header('Content-Type: text/html; charset=UTF-8');
         echo $this->render(
             $tab,
@@ -199,6 +218,8 @@ final class DashboardController
             $productImportWarehouseId,
             $mappings->recent(500),
             $logs->recent(500),
+            $correctionData,
+            $correctionError,
             $this->noticeFromRequest($_GET['notice'] ?? $_GET['sync'] ?? null)
         );
     }
@@ -265,6 +286,8 @@ final class DashboardController
         string $productImportWarehouseId,
         array $mappings,
         array $logs,
+        array $correctionData,
+        ?string $correctionError,
         mixed $notice
     ): string {
         $automationEnabled = (bool) Config::get('automation.enabled', true);
@@ -1052,6 +1075,7 @@ final class DashboardController
             <a class="tab <?= $tab === 'overview' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('overview')) ?>">Resumen</a>
             <a class="tab <?= $tab === 'jtl-orders' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Ordenes JTL</a>
             <a class="tab <?= $tab === 'fulfillment' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('fulfillment')) ?>">Fulfillment</a>
+            <a class="tab <?= $tab === 'order-corrections' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('order-corrections')) ?>">Correccion de ordenes</a>
             <a class="tab <?= $tab === 'packiyo-customers' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('packiyo-customers')) ?>">Clientes Packiyo</a>
             <a class="tab <?= $tab === 'customer-mappings' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('customer-mappings')) ?>">Mapeos</a>
             <a class="tab <?= $tab === 'products' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('products')) ?>">Productos</a>
@@ -1082,6 +1106,10 @@ final class DashboardController
 
             <?php if ($tab === 'fulfillment'): ?>
                 <?= $this->renderFulfillment($fulfillmentRows, $fulfillmentState, $activeCustomers, $fulfillmentCustomerId) ?>
+            <?php endif; ?>
+
+            <?php if ($tab === 'order-corrections'): ?>
+                <?= $this->renderOrderCorrections($correctionData, $correctionError) ?>
             <?php endif; ?>
 
             <?php if ($tab === 'packiyo-customers'): ?>
@@ -2708,6 +2736,152 @@ final class DashboardController
         return (string) ob_get_clean();
     }
 
+    /** @param array<string, mixed> $data */
+    private function renderOrderCorrections(array $data, ?string $error): string
+    {
+        $job = is_array($data['job'] ?? null) ? $data['job'] : null;
+        $lines = is_array($data['lines'] ?? null) ? $data['lines'] : [];
+        $catalogs = is_array($data['catalogs'] ?? null) ? $data['catalogs'] : [];
+        $jobId = (string) ($job['id'] ?? '');
+        $writeEnabled = !empty($data['write_enabled']);
+        ob_start();
+        ?>
+            <section>
+                <div class="section-head">
+                    <div>
+                        <h2>Correccion de ordenes</h2>
+                        <div class="muted">Analiza Packiyo por lotes y prepara reemplazos seguros para lineas JTL-LINE-*. No modifica JTL.</div>
+                    </div>
+                    <form method="post" action="<?= $this->e($this->url('/order-corrections/start')) ?>">
+                        <input type="hidden" name="days" value="180">
+                        <button class="button" type="submit">Nuevo analisis (180 dias)</button>
+                    </form>
+                </div>
+                <?php if ($error !== null): ?>
+                    <div class="notice"><strong>Error:</strong> <?= $this->e($error) ?></div>
+                <?php endif; ?>
+                <div class="notice">
+                    <strong><?= $writeEnabled ? 'Escritura atomica habilitada' : 'Modo lectura/simulacion' ?></strong>.
+                    <?php if (!$writeEnabled): ?>
+                        Las acciones remotas estan bloqueadas. Usa la previsualizacion y el CSV hasta confirmar un endpoint atomico con una orden de prueba.
+                    <?php else: ?>
+                        Cada orden se vuelve a leer, se valida y se verifica despues de escribir; se procesan como maximo diez por lote.
+                    <?php endif; ?>
+                </div>
+                <?php if ($job === null): ?>
+                    <div class="empty">Todavia no hay un trabajo de analisis.</div>
+                <?php else: ?>
+                    <div class="summary">
+                        <div class="metric"><span>Estado</span><strong><?= $this->e($job['status']) ?></strong></div>
+                        <div class="metric"><span>Pagina siguiente</span><strong><?= $this->e($job['cursor_page']) ?></strong></div>
+                        <div class="metric"><span>Ordenes revisadas</span><strong><?= $this->e($job['scanned_orders']) ?></strong></div>
+                        <div class="metric"><span>Lineas detectadas</span><strong><?= $this->e($job['detected_lines']) ?></strong></div>
+                        <div class="metric"><span>Desde</span><strong><?= $this->e($job['window_start']) ?></strong></div>
+                        <div class="metric"><span>Actualizado</span><strong><?= $this->e($job['updated_at']) ?></strong></div>
+                    </div>
+                    <?php if (!empty($job['last_error'])): ?>
+                        <div class="notice"><strong>Ultimo error:</strong> <?= $this->e($job['last_error']) ?></div>
+                    <?php endif; ?>
+                    <div class="actions">
+                        <?php if (($job['status'] ?? '') !== 'completed'): ?>
+                            <form method="post" action="<?= $this->e($this->url('/order-corrections/continue')) ?>">
+                                <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
+                                <button class="button" type="submit">Continuar siguiente lote</button>
+                            </form>
+                        <?php endif; ?>
+                        <form method="post" action="<?= $this->e($this->url('/order-corrections/preview')) ?>">
+                            <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
+                            <button class="button secondary" type="submit">Previsualizar todas las asignadas</button>
+                        </form>
+                        <form method="post" action="<?= $this->e($this->url('/order-corrections/execute')) ?>">
+                            <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
+                            <button class="button danger" type="submit" <?= $writeEnabled ? '' : 'disabled' ?>>Ejecutar asignadas (max. 10 ordenes)</button>
+                        </form>
+                        <a class="button secondary" href="<?= $this->e($this->url('/order-corrections/export?') . http_build_query(['job_id' => $jobId])) ?>">Exportar CSV</a>
+                    </div>
+                    <form method="get" action="<?= $this->e($this->url('/')) ?>" class="filters">
+                        <input type="hidden" name="tab" value="order-corrections">
+                        <input type="hidden" name="correction_job" value="<?= $this->e($jobId) ?>">
+                        <label>Cliente <input name="correction_customer" value="<?= $this->e($_GET['correction_customer'] ?? '') ?>"></label>
+                        <label>Estado Packiyo <input name="correction_status" value="<?= $this->e($_GET['correction_status'] ?? '') ?>"></label>
+                        <label>Fuente
+                            <select name="correction_source">
+                                <option value="">Todas</option>
+                                <?php foreach (['live', 'local_copy', 'unavailable'] as $source): ?>
+                                    <option value="<?= $this->e($source) ?>" <?= (string) ($_GET['correction_source'] ?? '') === $source ? 'selected' : '' ?>><?= $this->e($source) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                        <label>Resultado <input name="correction_result" value="<?= $this->e($_GET['correction_result'] ?? '') ?>"></label>
+                        <button class="button small" type="submit">Filtrar</button>
+                    </form>
+                    <?php if ($lines === []): ?>
+                        <div class="empty">No hay lineas que coincidan con los filtros actuales.</div>
+                    <?php else: ?>
+                        <div class="scroll-table order-table-scroll">
+                            <table data-sort-table="order-corrections">
+                                <thead>
+                                    <tr>
+                                        <th>Orden</th><th>Cliente / estado</th><th>Linea actual</th><th>JTL</th>
+                                        <th>Cantidad / precio</th><th>Producto Packiyo</th><th>Resultado</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($lines as $line): ?>
+                                    <?php
+                                        $customerId = (string) ($line['packiyo_customer_id'] ?? '');
+                                        $catalog = is_array($catalogs[$customerId] ?? null) ? $catalogs[$customerId] : [];
+                                        $suggestions = is_array($line['suggestions'] ?? null) ? $line['suggestions'] : [];
+                                    ?>
+                                    <tr>
+                                        <td>
+                                            <strong><?= $this->e($line['packiyo_order_number'] ?: $line['packiyo_order_id']) ?></strong>
+                                            <div class="muted">Packiyo <?= $this->e($line['packiyo_order_id']) ?></div>
+                                            <div class="muted">JTL <?= $this->e($line['jtl_order_number'] ?: $line['jtl_order_id'] ?: '-') ?></div>
+                                        </td>
+                                        <td><?= $this->e($customerId ?: '-') ?><div><span class="status <?= $this->e($line['packiyo_status']) ?>"><?= $this->e($line['packiyo_status'] ?: 'desconocido') ?></span></div></td>
+                                        <td><strong><?= $this->e($line['original_sku']) ?></strong><div class="muted"><?= $this->e($line['original_name']) ?></div><div class="muted">external_id: <?= $this->e($line['original_external_id'] ?: '-') ?></div></td>
+                                        <td>
+                                            <?= $this->e($line['jtl_name'] ?: 'Sin coincidencia') ?>
+                                            <div class="muted">SKU: <?= $this->e($line['jtl_sku'] ?: '-') ?></div>
+                                            <div><span class="status <?= $line['jtl_source'] === 'live' ? 'synced' : 'missing_config' ?>"><?= $this->e($line['jtl_source']) ?></span></div>
+                                            <?php if ($line['jtl_source'] === 'local_copy'): ?><div class="muted">Copia local no actualizada.</div><?php endif; ?>
+                                        </td>
+                                        <td><?= $this->e($line['quantity']) ?><div class="muted"><?= $this->e($line['price']) ?></div></td>
+                                        <td>
+                                            <form method="post" action="<?= $this->e($this->url('/order-corrections/assign')) ?>">
+                                                <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
+                                                <input type="hidden" name="line_ids[]" value="<?= $this->e($line['id']) ?>">
+                                                <select name="product_id" required>
+                                                    <option value="">Seleccionar producto...</option>
+                                                    <?php foreach ($catalog as $product): ?>
+                                                        <option value="<?= $this->e($product['id']) ?>" <?= (string) $line['proposed_product_id'] === (string) $product['id'] ? 'selected' : '' ?>>
+                                                            <?= $this->e($product['sku'] . ' — ' . $product['name']) ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <div class="actions">
+                                                    <button class="button small" name="scope" value="line">Solo esta linea</button>
+                                                    <button class="button secondary small" name="scope" value="group">Todas las coincidencias</button>
+                                                </div>
+                                            </form>
+                                            <?php if ($suggestions !== []): ?>
+                                                <div class="muted">Sugerencias: <?= $this->e(implode(', ', array_map(static fn (array $row): string => (string) ($row['sku'] ?? ''), $suggestions))) ?></div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><span class="status <?= $this->e($line['result']) ?>"><?= $this->e($line['result']) ?></span><?php if (!empty($line['error'])): ?><div class="muted"><?= $this->e($line['error']) ?></div><?php endif; ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </section>
+        <?php
+        return (string) ob_get_clean();
+    }
+
     private function renderSettings(): string
     {
         $database = Config::get('database.mysql', []);
@@ -3091,7 +3265,7 @@ final class DashboardController
     private function activeTab(mixed $tab): string
     {
         $tab = is_string($tab) ? $tab : 'overview';
-        $allowed = ['overview', 'jtl-orders', 'fulfillment', 'packiyo-customers', 'customer-mappings', 'products', 'settings', 'logs'];
+        $allowed = ['overview', 'jtl-orders', 'fulfillment', 'order-corrections', 'packiyo-customers', 'customer-mappings', 'products', 'settings', 'logs'];
 
         return in_array($tab, $allowed, true) ? $tab : 'overview';
     }

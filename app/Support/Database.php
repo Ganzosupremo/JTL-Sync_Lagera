@@ -320,6 +320,111 @@ final class Database
                 KEY packiyo_sku_aliases_active_index (active)
             )"
         );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS order_correction_jobs (
+                id VARCHAR(64) PRIMARY KEY,
+                status VARCHAR(30) NOT NULL DEFAULT 'running',
+                cursor_page INT NOT NULL DEFAULT 1,
+                cursor_offset INT NOT NULL DEFAULT 0,
+                scanned_orders INT NOT NULL DEFAULT 0,
+                detected_lines INT NOT NULL DEFAULT 0,
+                window_start DATETIME NOT NULL,
+                window_end DATETIME NOT NULL,
+                last_error TEXT NULL,
+                created_by_user_id INT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                KEY order_correction_jobs_status_index (status),
+                KEY order_correction_jobs_updated_index (updated_at)
+            )"
+        );
+        self::addColumnIfMissing(
+            $db,
+            'order_correction_jobs',
+            'cursor_offset',
+            'cursor_offset INT NOT NULL DEFAULT 0 AFTER cursor_page'
+        );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS order_correction_lines (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                job_id VARCHAR(64) NOT NULL,
+                packiyo_order_id VARCHAR(100) NOT NULL,
+                packiyo_order_number VARCHAR(150) NULL,
+                packiyo_customer_id VARCHAR(100) NULL,
+                packiyo_status VARCHAR(80) NULL,
+                jtl_order_id VARCHAR(100) NULL,
+                jtl_order_number VARCHAR(150) NULL,
+                jtl_source VARCHAR(30) NOT NULL DEFAULT 'unavailable',
+                line_index INT NOT NULL,
+                original_external_id VARCHAR(150) NULL,
+                original_sku VARCHAR(255) NOT NULL,
+                original_name VARCHAR(500) NULL,
+                jtl_name VARCHAR(500) NULL,
+                jtl_sku VARCHAR(255) NULL,
+                quantity DECIMAL(18,6) NOT NULL DEFAULT 0,
+                price DECIMAL(18,6) NOT NULL DEFAULT 0,
+                current_snapshot_json JSON NOT NULL,
+                jtl_snapshot_json JSON NULL,
+                suggestions_json JSON NULL,
+                proposed_product_id VARCHAR(100) NULL,
+                proposed_sku VARCHAR(255) NULL,
+                proposed_name VARCHAR(500) NULL,
+                assignment_scope VARCHAR(20) NULL,
+                assignment_key VARCHAR(600) NULL,
+                selected TINYINT(1) NOT NULL DEFAULT 0,
+                preview_hash CHAR(64) NULL,
+                previewed_at DATETIME NULL,
+                result VARCHAR(30) NOT NULL DEFAULT 'pending',
+                error TEXT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                UNIQUE KEY order_correction_lines_job_order_line_unique (job_id, packiyo_order_id, line_index),
+                KEY order_correction_lines_job_index (job_id),
+                KEY order_correction_lines_customer_index (packiyo_customer_id),
+                KEY order_correction_lines_result_index (result),
+                CONSTRAINT order_correction_lines_job_fk FOREIGN KEY (job_id) REFERENCES order_correction_jobs(id) ON DELETE CASCADE
+            )"
+        );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS order_correction_assignments (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                packiyo_customer_id VARCHAR(100) NOT NULL,
+                normalized_jtl_name VARCHAR(500) NOT NULL,
+                source_name VARCHAR(500) NOT NULL,
+                packiyo_product_id VARCHAR(100) NOT NULL,
+                packiyo_sku VARCHAR(255) NOT NULL,
+                packiyo_product_name VARCHAR(500) NOT NULL,
+                scope VARCHAR(20) NOT NULL DEFAULT 'group',
+                packiyo_order_id VARCHAR(100) NOT NULL DEFAULT '',
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                UNIQUE KEY order_correction_assignments_key_unique (packiyo_customer_id, normalized_jtl_name, scope, packiyo_order_id),
+                KEY order_correction_assignments_customer_index (packiyo_customer_id)
+            )"
+        );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS order_correction_attempts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                job_id VARCHAR(64) NOT NULL,
+                line_id INT NULL,
+                packiyo_order_id VARCHAR(100) NOT NULL,
+                action VARCHAR(30) NOT NULL,
+                before_json JSON NULL,
+                after_json JSON NULL,
+                status VARCHAR(30) NOT NULL,
+                error TEXT NULL,
+                created_by_user_id INT NULL,
+                created_at DATETIME NOT NULL,
+                KEY order_correction_attempts_job_index (job_id),
+                KEY order_correction_attempts_order_index (packiyo_order_id),
+                CONSTRAINT order_correction_attempts_job_fk FOREIGN KEY (job_id) REFERENCES order_correction_jobs(id) ON DELETE CASCADE
+            )"
+        );
     }
 
     private static function mysqlConnection(): mysqli

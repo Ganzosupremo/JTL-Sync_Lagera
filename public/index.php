@@ -14,6 +14,7 @@ use App\Controllers\PackiyoCustomerController;
 use App\Controllers\PackiyoProductCatalogController;
 use App\Controllers\PackiyoCustomerMappingController;
 use App\Controllers\OrderDraftController;
+use App\Controllers\OrderCorrectionController;
 use App\Controllers\ProductNameMappingController;
 use App\Controllers\ProductImportController;
 use App\Controllers\ProductSkuAliasController;
@@ -59,6 +60,12 @@ try {
         '/sync/order' => (new SyncController())->runOne(),
         '/jtl/orders/draft' => (new OrderDraftController())->save(),
         '/jtl/orders/draft/reset' => (new OrderDraftController())->reset(),
+        '/order-corrections/start' => (new OrderCorrectionController())->start(),
+        '/order-corrections/continue' => (new OrderCorrectionController())->continue(),
+        '/order-corrections/assign' => (new OrderCorrectionController())->assign(),
+        '/order-corrections/preview' => (new OrderCorrectionController())->preview(),
+        '/order-corrections/execute' => (new OrderCorrectionController())->execute(),
+        '/order-corrections/export' => (new OrderCorrectionController())->export(),
         '/fulfillment/sync' => (new FulfillmentController())->sync(),
         '/jtl/order-sources/detect' => (new JtlOrderSourceController())->detect(),
         '/jtl/register' => (new JtlRegistrationController())->start(),

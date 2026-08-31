@@ -267,3 +267,9 @@ Cron antiguo, solo ordenes JTL -> Packiyo:
 - `POST /users/invite` crea invitaciones de usuario.
 - `POST /users/invite/revoke` revoca invitaciones pendientes.
 - `GET /health` devuelve estado de configuracion.
+
+## Correccion de ordenes Packiyo
+
+La pestaña **Correccion de ordenes** analiza por lotes reanudables los ultimos 180 dias de Packiyo para localizar lineas `JTL-LINE-*`. Relaciona cada orden con JTL cuando esta disponible, identifica las copias locales no actualizadas, limita las sugerencias al catalogo del cliente y exige una asignacion manual individual o por grupo.
+
+El flujo funciona en lectura/simulacion por defecto: vuelve a leer Packiyo antes de generar la previsualizacion y permite exportar un CSV auditable. La escritura remota sigue bloqueada hasta activar `PACKIYO_ORDER_CORRECTION_WRITE_ENABLED`, confirmar `PACKIYO_ORDER_CORRECTION_ATOMIC_CONFIRMED` y configurar un `PACKIYO_ORDER_CORRECTION_ATOMIC_ENDPOINT` probado. Nunca se usa una secuencia separada de anadir y borrar lineas; antes y despues de una escritura se validan el estado, el snapshot, el producto y las lineas no afectadas.

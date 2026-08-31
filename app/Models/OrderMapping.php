@@ -34,6 +34,30 @@ final class OrderMapping
         return is_array($row) ? $row : null;
     }
 
+    /** @return array<string, mixed>|null */
+    public function findByPackiyoOrder(string $id, ?string $number = null, ?string $customerId = null): ?array
+    {
+        $number = trim((string) $number);
+        $customerId = trim((string) $customerId);
+        $statement = $number !== '' && $customerId !== ''
+            ? $this->connection()->prepare(
+                'SELECT * FROM order_mappings
+                 WHERE (packiyo_order_id = ? OR packiyo_order_number = ?) AND packiyo_customer_id = ?
+                 ORDER BY id DESC LIMIT 1'
+            )
+            : $this->connection()->prepare(
+                'SELECT * FROM order_mappings WHERE packiyo_order_id = ? ORDER BY id DESC LIMIT 1'
+            );
+        if ($number !== '' && $customerId !== '') {
+            $statement->bind_param('sss', $id, $number, $customerId);
+        } else {
+            $statement->bind_param('s', $id);
+        }
+        $statement->execute();
+        $row = $statement->get_result()->fetch_assoc();
+        return is_array($row) ? $row : null;
+    }
+
     /**
      * @param array<int, string> $jtlOrderIds
      * @return array<string, array<string, mixed>>
