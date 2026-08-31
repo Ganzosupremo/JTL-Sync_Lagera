@@ -38,12 +38,10 @@ final class PackiyoClient
     }
 
     /** @return array<string, mixed> */
-    public function listOrdersPage(string $createdFrom, string $createdTo, int $page = 1, int $pageSize = 25): array
+    public function listOrdersPage(int $page = 1, int $pageSize = 25): array
     {
         return $this->http->get((string) $this->config['orders_endpoint'], [
             'query' => [
-                (string) ($this->config['order_created_from_filter'] ?? 'filter[created_at_min]') => $this->dateForFilter($createdFrom),
-                (string) ($this->config['order_created_to_filter'] ?? 'filter[created_at_max]') => $this->dateForFilter($createdTo),
                 'include' => (string) ($this->config['order_correction_include'] ?? 'order_items,customer'),
                 'page[number]' => max(1, $page),
                 'page[size]' => max(1, min(100, $pageSize)),

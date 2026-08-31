@@ -56,15 +56,19 @@ final class OrderCorrectionService
                 }
 
                 $response = $this->packiyoClient()->listOrdersPage(
-                    (string) $job['window_start'],
-                    (string) $job['window_end'],
                     $page,
                     5
                 );
                 $orders = self::resources($response);
                 $detected = 0;
                 for ($index = $offset; $index < count($orders); $index++) {
-                    $lineCount = $this->analyzeOrder($jobId, $orders[$index], $response);
+                    $lineCount = self::isOrderWithinWindow(
+                        $orders[$index],
+                        (string) $job['window_start'],
+                        (string) $job['window_end']
+                    )
+                        ? $this->analyzeOrder($jobId, $orders[$index], $response)
+                        : 0;
                     $detected += $lineCount;
                     $totalScanned++;
                     $totalDetected += $lineCount;
@@ -394,6 +398,28 @@ final class OrderCorrectionService
         $resource = self::firstResource($order);
         $attributes = is_array($resource['attributes'] ?? null) ? $resource['attributes'] : $resource;
         return self::lineString($attributes, ['status', 'state', 'order_status', 'orderStatus']);
+    }
+
+    /** @param array<string, mixed> $order */
+    public static function isOrderWithinWindow(array $order, string $windowStart, string $windowEnd): bool
+    {
+        $attributes = is_array($order['attributes'] ?? null) ? $order['attributes'] : $order;
+        $createdAt = self::lineString($attributes, ['created_at', 'createdAt', 'created', 'ordered_at', 'orderedAt']);
+
+        if ($createdAt === '') {
+            // Do not discard an order only because the list response omitted its timestamp.
+            return true;
+        }
+
+        $createdTimestamp = strtotime($createdAt);
+        $startTimestamp = strtotime($windowStart);
+        $endTimestamp = strtotime($windowEnd);
+
+        if ($createdTimestamp === false || $startTimestamp === false || $endTimestamp === false) {
+            return true;
+        }
+
+        return $createdTimestamp >= $startTimestamp && $createdTimestamp <= $endTimestamp;
     }
 
     /** @param array<string, mixed> $resource @param array<string, mixed> $parent */
