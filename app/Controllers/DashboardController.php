@@ -1463,6 +1463,12 @@ final class DashboardController
                 table?.addEventListener('input', updateCorrectionSelection);
                 updateCorrectionSelection();
             }
+
+            document.querySelector('[data-correction-batch-form]')?.addEventListener('submit', (event) => {
+                if (!window.confirm('Se enviaran a Packiyo las siguientes 10 ordenes pendientes como maximo. Las ya corregidas y las lineas JTL-LINE canceladas se omitiran. ¿Quieres continuar?')) {
+                    event.preventDefault();
+                }
+            });
         })();
     </script>
 </body>
@@ -2955,6 +2961,10 @@ final class DashboardController
                         <form method="post" action="<?= $this->e($this->url('/order-corrections/preview')) ?>">
                             <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
                             <button class="button secondary" type="submit">Previsualizar todas las asignadas</button>
+                        </form>
+                        <form method="post" action="<?= $this->e($this->url('/order-corrections/execute')) ?>" data-correction-batch-form>
+                            <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
+                            <button class="button danger" type="submit" <?= $writeEnabled ? '' : 'disabled' ?>>Enviar siguiente batch a Packiyo (max. 10)</button>
                         </form>
                         <a class="button secondary" href="<?= $this->e($this->url('/order-corrections/export?') . http_build_query(['job_id' => $jobId])) ?>">Exportar CSV</a>
                     </div>

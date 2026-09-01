@@ -107,6 +107,8 @@ assertContainsText("'shipping_method_name'", (string) $correctionSource, 'La cor
 assertContainsText("'Generic'", (string) $correctionSource, 'Generic debe ser el metodo de envio fallback aceptado por Packiyo.');
 assertContainsText('isFinalCorrectionResult', (string) $correctionSource, 'Las correcciones terminadas deben excluirse de nuevas ejecuciones.');
 assertContainsText('Esta orden ya fue corregida', (string) $controllerSource, 'La interfaz debe explicar por que una orden corregida no puede seleccionarse.');
+assertContainsText('Enviar siguiente batch a Packiyo (max. 10)', (string) $controllerSource, 'La correccion debe permitir ejecutar el siguiente lote de diez ordenes pendientes.');
+assertContainsText('data-correction-batch-form', (string) $controllerSource, 'El lote debe solicitar confirmacion antes de escribir en Packiyo.');
 assertContainsText('isCancelledLineItem', (string) $correctionSource, 'Las lineas JTL-LINE canceladas deben excluirse del flujo de correccion.');
 assertContainsText('ignored_cancelled', (string) $correctionSource, 'Las lineas canceladas detectadas en trabajos existentes deben quedar marcadas como omitidas.');
 

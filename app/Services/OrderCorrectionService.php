@@ -254,15 +254,12 @@ final class OrderCorrectionService
                 'Modo simulacion activo. Configure y confirme primero un endpoint Packiyo de reemplazo atomico.'
             );
         }
-        $lines = array_slice($this->assignedLines($jobId, $lineIds), 0, 100);
+        $lines = $this->assignedLines($jobId, $lineIds);
         $summary = ['corrected' => 0, 'skipped' => 0, 'failed' => 0];
         $orderCount = 0;
         $orderLimit = $singleOrderTest ? 1 : 10;
         foreach ($this->groupByOrder($lines) as $orderId => $orderLines) {
             $orderId = (string) $orderId;
-            if (++$orderCount > $orderLimit) {
-                break;
-            }
             try {
                 $current = $this->packiyoClient()->getOrder($orderId);
                 $items = self::extractPackiyoLineItems($current);
@@ -280,6 +277,10 @@ final class OrderCorrectionService
                     }
                     continue;
                 }
+                if ($orderCount >= $orderLimit) {
+                    break;
+                }
+                $orderCount++;
                 $currentHash = self::snapshotHash($items);
                 foreach ($orderLines as $line) {
                     $expectedHash = (string) ($line['preview_hash'] ?? '');
