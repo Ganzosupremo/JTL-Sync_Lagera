@@ -14,14 +14,19 @@ final class OrderCorrectionController
     {
         $this->postOnly();
         try {
+            $days = max(1, min(365, (int) ($_POST['days'] ?? 60)));
+            $customerIds = $this->customerIds();
             $job = (new OrderCorrectionService())->start(
-                max(1, min(365, (int) ($_POST['days'] ?? 180))),
+                $days,
+                $customerIds,
                 (new Auth())->currentUserId()
             );
             $this->redirect(
                 (string) $job['id'],
                 sprintf(
-                    'Analisis iniciado: %d ordenes revisadas y %d lineas JTL-LINE encontradas hasta ahora. Continua por lotes hasta completarlo.',
+                    'Analisis de %d dias iniciado para %d cliente(s): %d ordenes revisadas y %d lineas JTL-LINE encontradas hasta ahora.',
+                    $days,
+                    count($customerIds),
                     (int) ($job['scanned_orders'] ?? 0),
                     (int) ($job['detected_lines'] ?? 0)
                 )
@@ -134,6 +139,19 @@ final class OrderCorrectionController
     private function jobId(): string
     {
         return trim((string) ($_POST['job_id'] ?? ''));
+    }
+
+    /** @return array<int, string> */
+    private function customerIds(): array
+    {
+        $input = $_POST['customer_ids'] ?? [];
+        if (!is_array($input)) {
+            return [];
+        }
+        return array_values(array_unique(array_filter(array_map(
+            static fn (mixed $customerId): string => is_scalar($customerId) ? trim((string) $customerId) : '',
+            $input
+        ))));
     }
 
     private function postOnly(): void

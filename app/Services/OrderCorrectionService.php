@@ -9,6 +9,7 @@ use App\Clients\PackiyoClient;
 use App\Models\OrderCorrection;
 use App\Models\OrderDraft;
 use App\Models\OrderMapping;
+use App\Models\PackiyoCustomer;
 use App\Models\ProductNameMapping;
 use App\Models\ProductSkuAlias;
 use App\Support\Config;
@@ -24,14 +25,29 @@ final class OrderCorrectionService
         private readonly ?OrderCorrection $corrections = null,
         private readonly ?OrderMapping $mappings = null,
         private readonly ?OrderDraft $drafts = null,
-        private readonly ?OrderPreparationService $preparation = null
+        private readonly ?OrderPreparationService $preparation = null,
+        private readonly ?PackiyoCustomer $customers = null
     ) {
     }
 
-    /** @return array<string, mixed> */
-    public function start(int $days = 180, ?int $userId = null): array
+    /** @param array<int, string> $customerIds @return array<string, mixed> */
+    public function start(int $days = 60, array $customerIds = [], ?int $userId = null): array
     {
-        $job = $this->store()->createJob($days, $userId);
+        $activeCustomers = $this->customerModel()->listByActive(true);
+        $activeIds = array_values(array_filter(array_map(
+            static fn (array $customer): string => trim((string) ($customer['packiyo_customer_id'] ?? '')),
+            $activeCustomers
+        )));
+        $selectedIds = self::normalizeCustomerIds($customerIds);
+        if ($selectedIds === []) {
+            throw new RuntimeException('Selecciona al menos un cliente activo para el analisis.');
+        }
+        $invalidIds = array_diff($selectedIds, $activeIds);
+        if ($invalidIds !== []) {
+            throw new RuntimeException('La seleccion contiene clientes inactivos o desconocidos. Actualiza la pagina e intentalo de nuevo.');
+        }
+
+        $job = $this->store()->createJob($days, $selectedIds, $userId);
         return $this->continue((string) $job['id']);
     }
 
@@ -46,6 +62,7 @@ final class OrderCorrectionService
         $started = microtime(true);
         $page = max(1, (int) $job['cursor_page']);
         $offset = max(0, (int) ($job['cursor_offset'] ?? 0));
+        $selectedCustomerIds = self::jobCustomerIds($job);
         $totalScanned = 0;
         $totalDetected = 0;
 
@@ -64,18 +81,19 @@ final class OrderCorrectionService
                 $orders = self::resources($response);
                 $detected = 0;
                 for ($index = $offset; $index < count($orders); $index++) {
-                    $lineCount = self::isOrderWithinWindow(
+                    $withinWindow = self::isOrderWithinWindow(
                         $orders[$index],
                         (string) $job['window_start'],
                         (string) $job['window_end']
-                    )
-                        ? $this->analyzeOrder($jobId, $orders[$index], $response)
-                        : 0;
+                    );
+                    $selectedCustomer = self::isOrderForSelectedCustomers($orders[$index], $selectedCustomerIds);
+                    $reviewed = $withinWindow && $selectedCustomer ? 1 : 0;
+                    $lineCount = $reviewed === 1 ? $this->analyzeOrder($jobId, $orders[$index], $response) : 0;
                     $detected += $lineCount;
-                    $totalScanned++;
+                    $totalScanned += $reviewed;
                     $totalDetected += $lineCount;
                     $offset = $index + 1;
-                    $this->store()->advanceJob($jobId, $page, $offset, 1, $lineCount, 'running');
+                    $this->store()->advanceJob($jobId, $page, $offset, $reviewed, $lineCount, 'running');
                     if (microtime(true) - $started >= $timeBudgetSeconds && $offset < count($orders)) {
                         return $this->requireJob($jobId);
                     }
@@ -118,6 +136,8 @@ final class OrderCorrectionService
         return [
             'job' => $job,
             'lines' => $lines,
+            'active_customers' => $this->customerModel()->listByActive(true),
+            'selected_customer_ids' => $job !== null ? self::jobCustomerIds($job) : [],
             'summary' => $job !== null ? $this->store()->summary((string) $job['id']) : [
                 'jtl_matches' => 0,
                 'packiyo_assignments' => 0,
@@ -426,6 +446,33 @@ final class OrderCorrectionService
         }
 
         return $createdTimestamp >= $startTimestamp && $createdTimestamp <= $endTimestamp;
+    }
+
+    /** @param array<string, mixed> $order @param array<int, string> $customerIds */
+    public static function isOrderForSelectedCustomers(array $order, array $customerIds): bool
+    {
+        if ($customerIds === []) {
+            return true;
+        }
+        $attributes = is_array($order['attributes'] ?? null) ? $order['attributes'] : $order;
+        $customerId = self::customerId($order, $attributes);
+        return $customerId !== '' && in_array($customerId, $customerIds, true);
+    }
+
+    /** @param array<string, mixed> $job @return array<int, string> */
+    private static function jobCustomerIds(array $job): array
+    {
+        $decoded = json_decode((string) ($job['customer_ids_json'] ?? ''), true);
+        return is_array($decoded) ? self::normalizeCustomerIds($decoded) : [];
+    }
+
+    /** @param array<int, mixed> $customerIds @return array<int, string> */
+    private static function normalizeCustomerIds(array $customerIds): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            static fn (mixed $customerId): string => is_scalar($customerId) ? trim((string) $customerId) : '',
+            $customerIds
+        ))));
     }
 
     /** @param array<string, mixed> $resource @param array<string, mixed> $parent */
@@ -863,4 +910,5 @@ final class OrderCorrectionService
     private function mappingModel(): OrderMapping { return $this->mappings ?? new OrderMapping(); }
     private function draftModel(): OrderDraft { return $this->drafts ?? new OrderDraft(); }
     private function preparationService(): OrderPreparationService { return $this->preparation ?? new OrderPreparationService(); }
+    private function customerModel(): PackiyoCustomer { return $this->customers ?? new PackiyoCustomer(); }
 }

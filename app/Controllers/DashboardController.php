@@ -707,6 +707,41 @@ final class DashboardController
         .review-errors { color: var(--bad); margin: 10px 0; }
         .suggestions { color: var(--muted); font-size: 12px; margin-top: 6px; }
 
+        .correction-start-form {
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            display: grid;
+            gap: 12px;
+            margin-bottom: 14px;
+            padding: 14px;
+        }
+
+        .customer-check-grid {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            max-height: 240px;
+            overflow: auto;
+        }
+
+        .customer-check {
+            align-items: flex-start;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            color: inherit;
+            display: flex;
+            gap: 9px;
+            margin: 0;
+            padding: 10px;
+        }
+
+        .customer-check small {
+            color: var(--muted);
+            display: block;
+            font-weight: 400;
+            margin-top: 2px;
+        }
+
         .fulfillment-toolbar {
             align-items: flex-start;
             display: flex;
@@ -2743,6 +2778,14 @@ final class DashboardController
         $lines = is_array($data['lines'] ?? null) ? $data['lines'] : [];
         $correctionSummary = is_array($data['summary'] ?? null) ? $data['summary'] : [];
         $catalogs = is_array($data['catalogs'] ?? null) ? $data['catalogs'] : [];
+        $activeCustomers = is_array($data['active_customers'] ?? null) ? $data['active_customers'] : [];
+        $selectedCustomerIds = is_array($data['selected_customer_ids'] ?? null) ? $data['selected_customer_ids'] : [];
+        $defaultCustomerIds = $selectedCustomerIds !== []
+            ? $selectedCustomerIds
+            : array_values(array_filter(array_map(
+                static fn (array $customer): string => trim((string) ($customer['packiyo_customer_id'] ?? '')),
+                $activeCustomers
+            )));
         $jobId = (string) ($job['id'] ?? '');
         $writeEnabled = !empty($data['write_enabled']);
         ob_start();
@@ -2753,14 +2796,39 @@ final class DashboardController
                         <h2>Correccion de ordenes</h2>
                         <div class="muted">Analiza Packiyo por lotes y prepara reemplazos seguros para lineas JTL-LINE-*. No modifica JTL.</div>
                     </div>
-                    <form method="post" action="<?= $this->e($this->url('/order-corrections/start')) ?>">
-                        <input type="hidden" name="days" value="180">
-                        <button class="button" type="submit">Nuevo analisis (180 dias)</button>
-                    </form>
                 </div>
                 <?php if ($error !== null): ?>
                     <div class="notice"><strong>Error:</strong> <?= $this->e($error) ?></div>
                 <?php endif; ?>
+                <form method="post" action="<?= $this->e($this->url('/order-corrections/start')) ?>" class="correction-start-form">
+                    <input type="hidden" name="days" value="60">
+                    <div>
+                        <strong>Nuevo analisis: ultimos 60 dias</strong>
+                        <div class="muted">Solo se revisaran ordenes de los clientes activos seleccionados.</div>
+                    </div>
+                    <?php if ($activeCustomers === []): ?>
+                        <div class="empty">No hay clientes Packiyo activos. Activa o sincroniza clientes antes de iniciar.</div>
+                    <?php else: ?>
+                        <div class="customer-check-grid">
+                            <?php foreach ($activeCustomers as $customer): ?>
+                                <?php $customerId = trim((string) ($customer['packiyo_customer_id'] ?? '')); ?>
+                                <?php if ($customerId === '') { continue; } ?>
+                                <label class="customer-check">
+                                    <input type="checkbox" name="customer_ids[]" value="<?= $this->e($customerId) ?>" <?= in_array($customerId, $defaultCustomerIds, true) ? 'checked' : '' ?>>
+                                    <span>
+                                        <?= $this->e($this->customerDisplayName($customer)) ?>
+                                        <small><?= $this->e($customerId) ?></small>
+                                    </span>
+                                </label>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="actions">
+                            <button class="button secondary small" type="button" onclick="this.closest('form').querySelectorAll('input[name=&quot;customer_ids[]&quot;]').forEach(function(input){input.checked=true;})">Seleccionar todos</button>
+                            <button class="button secondary small" type="button" onclick="this.closest('form').querySelectorAll('input[name=&quot;customer_ids[]&quot;]').forEach(function(input){input.checked=false;})">Quitar todos</button>
+                            <button class="button" type="submit">Iniciar analisis</button>
+                        </div>
+                    <?php endif; ?>
+                </form>
                 <div class="notice">
                     <strong><?= $writeEnabled ? 'Escritura atomica habilitada' : 'Modo lectura/simulacion' ?></strong>.
                     <?php if (!$writeEnabled): ?>
@@ -2778,6 +2846,7 @@ final class DashboardController
                         <div class="metric"><span>Lineas JTL-LINE encontradas</span><strong><?= $this->e($job['detected_lines']) ?></strong></div>
                         <div class="metric"><span>Coincidencias con JTL</span><strong><?= $this->e($correctionSummary['jtl_matches'] ?? 0) ?></strong></div>
                         <div class="metric"><span>Producto Packiyo asignado</span><strong><?= $this->e($correctionSummary['packiyo_assignments'] ?? 0) ?></strong></div>
+                        <div class="metric"><span>Clientes seleccionados</span><strong><?= $this->e($selectedCustomerIds === [] ? 'Todos' : count($selectedCustomerIds)) ?></strong></div>
                         <div class="metric"><span>Desde</span><strong><?= $this->e($job['window_start']) ?></strong></div>
                         <div class="metric"><span>Actualizado</span><strong><?= $this->e($job['updated_at']) ?></strong></div>
                     </div>

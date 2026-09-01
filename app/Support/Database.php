@@ -331,6 +331,7 @@ final class Database
                 detected_lines INT NOT NULL DEFAULT 0,
                 window_start DATETIME NOT NULL,
                 window_end DATETIME NOT NULL,
+                customer_ids_json JSON NULL,
                 last_error TEXT NULL,
                 created_by_user_id INT NULL,
                 created_at DATETIME NOT NULL,
@@ -344,6 +345,12 @@ final class Database
             'order_correction_jobs',
             'cursor_offset',
             'cursor_offset INT NOT NULL DEFAULT 0 AFTER cursor_page'
+        );
+        self::addColumnIfMissing(
+            $db,
+            'order_correction_jobs',
+            'customer_ids_json',
+            'customer_ids_json JSON NULL AFTER window_end'
         );
 
         $db->query(

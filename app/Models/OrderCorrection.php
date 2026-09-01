@@ -13,19 +13,20 @@ final class OrderCorrection
     {
     }
 
-    /** @return array<string, mixed> */
-    public function createJob(int $days, ?int $userId): array
+    /** @param array<int, string> $customerIds @return array<string, mixed> */
+    public function createJob(int $days, array $customerIds, ?int $userId): array
     {
         $id = bin2hex(random_bytes(16));
         $now = date('Y-m-d H:i:s');
         $from = date('Y-m-d H:i:s', strtotime('-' . max(1, min(365, $days)) . ' days'));
+        $customerIdsJson = $this->json(array_values($customerIds));
         $statement = $this->connection()->prepare(
             'INSERT INTO order_correction_jobs
-             (id, status, cursor_page, scanned_orders, detected_lines, window_start, window_end, created_by_user_id, created_at, updated_at)
-             VALUES (?, ?, 1, 0, 0, ?, ?, ?, ?, ?)'
+             (id, status, cursor_page, scanned_orders, detected_lines, window_start, window_end, customer_ids_json, created_by_user_id, created_at, updated_at)
+             VALUES (?, ?, 1, 0, 0, ?, ?, ?, ?, ?, ?)'
         );
         $status = 'running';
-        $statement->bind_param('ssssiss', $id, $status, $from, $now, $userId, $now, $now);
+        $statement->bind_param('sssssiss', $id, $status, $from, $now, $customerIdsJson, $userId, $now, $now);
         $statement->execute();
 
         return $this->job($id) ?? [];
