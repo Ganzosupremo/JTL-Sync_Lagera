@@ -95,6 +95,11 @@ assertContainsText("jtlFilterForm.addEventListener('submit', (event) =>", (strin
 assertContainsText("event.preventDefault();", (string) $controllerSource, 'Los filtros locales no deben enviar peticiones al servidor.');
 assertContainsText("control.value ?? ''", (string) $controllerSource, 'La busqueda debe incluir IDs y valores guardados en controles ocultos.');
 assertContainsText('Sin coincidencias para esta búsqueda.', (string) $controllerSource, 'La busqueda debe informar cuando no encuentra filas.');
+assertContainsText('data-correction-selected-form', (string) $controllerSource, 'La correccion debe ofrecer acciones para las ordenes seleccionadas.');
+assertContainsText('name="order_ids[]"', (string) $controllerSource, 'Cada orden debe poder seleccionarse para previsualizarla o corregirla.');
+assertContainsText('Corregir seleccionadas en Packiyo', (string) $controllerSource, 'La accion remota debe indicar claramente que solo afecta la seleccion.');
+assertContainsText("selected === 0", (string) $controllerSource, 'Una seleccion vacia no debe ejecutar todas las ordenes por accidente.');
+assertContainsText("selected > 10", (string) $controllerSource, 'La interfaz debe respetar el maximo de diez ordenes por lote.');
 
 echo "order_tables_test: OK\n";
 

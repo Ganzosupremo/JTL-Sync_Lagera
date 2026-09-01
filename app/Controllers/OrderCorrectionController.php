@@ -83,11 +83,10 @@ final class OrderCorrectionController
         $this->postOnly();
         $jobId = $this->jobId();
         try {
-            $result = (new OrderCorrectionService())->preview(
-                $jobId,
-                $this->lineIds(),
-                (new Auth())->currentUserId()
-            );
+            $service = new OrderCorrectionService();
+            $result = $this->selectedOrdersMode()
+                ? $service->previewOrders($jobId, $this->orderIds(), (new Auth())->currentUserId())
+                : $service->preview($jobId, $this->lineIds(), (new Auth())->currentUserId());
             $ready = count(array_filter($result['orders'], static fn (array $row): bool => $row['status'] === 'ready'));
             $this->redirect($jobId, 'Previsualizacion actualizada: ' . $ready . ' orden(es) listas.');
         } catch (Throwable $exception) {
@@ -100,11 +99,10 @@ final class OrderCorrectionController
         $this->postOnly();
         $jobId = $this->jobId();
         try {
-            $summary = (new OrderCorrectionService())->execute(
-                $jobId,
-                $this->lineIds(),
-                (new Auth())->currentUserId()
-            );
+            $service = new OrderCorrectionService();
+            $summary = $this->selectedOrdersMode()
+                ? $service->executeOrders($jobId, $this->orderIds(), (new Auth())->currentUserId())
+                : $service->execute($jobId, $this->lineIds(), (new Auth())->currentUserId());
             $this->redirect(
                 $jobId,
                 sprintf('Ejecucion: %d corregidas, %d omitidas, %d fallidas.', $summary['corrected'], $summary['skipped'], $summary['failed'])
@@ -141,6 +139,24 @@ final class OrderCorrectionController
     private function jobId(): string
     {
         return trim((string) ($_POST['job_id'] ?? ''));
+    }
+
+    /** @return array<int, string> */
+    private function orderIds(): array
+    {
+        $input = $_POST['order_ids'] ?? [];
+        if (!is_array($input)) {
+            return [];
+        }
+        return array_values(array_unique(array_filter(array_map(
+            static fn (mixed $orderId): string => is_scalar($orderId) ? trim((string) $orderId) : '',
+            $input
+        ))));
+    }
+
+    private function selectedOrdersMode(): bool
+    {
+        return (string) ($_POST['selection_mode'] ?? '') === 'orders';
     }
 
     /** @return array<int, string> */

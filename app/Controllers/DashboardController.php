@@ -423,6 +423,28 @@ final class DashboardController
             gap: 10px;
         }
 
+        .correction-selection-bar {
+            align-items: center;
+            background: #fff8e8;
+            border: 1px solid #f2cf7d;
+            border-radius: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 14px 0;
+            padding: 10px 12px;
+        }
+
+        .correction-selection-bar .selection-count {
+            color: var(--muted);
+            margin-right: auto;
+        }
+
+        .order-checkbox {
+            height: 18px;
+            width: 18px;
+        }
+
         .notice {
             border: 1px solid #b9d3ff;
             background: #edf5ff;
@@ -1389,6 +1411,54 @@ final class DashboardController
                     const url = event.currentTarget.dataset.clearUrl;
                     if (url) window.location.assign(url);
                 });
+            }
+
+            const correctionForm = document.querySelector('[data-correction-selected-form]');
+            if (correctionForm) {
+                const table = document.querySelector('[data-sort-table="order-corrections"]');
+                const checkboxes = Array.from(document.querySelectorAll('[data-correction-order-checkbox]'))
+                    .filter((checkbox) => !checkbox.disabled);
+                const selectAll = document.querySelector('[data-correction-select-all]');
+                const count = correctionForm.querySelector('[data-correction-selection-count]');
+                const executeButton = correctionForm.querySelector('[data-correction-execute]');
+
+                const updateCorrectionSelection = () => {
+                    const selected = checkboxes.filter((checkbox) => checkbox.checked).length;
+                    if (count) count.textContent = `${selected} orden(es) seleccionada(s)`;
+                    if (selectAll) {
+                        const visible = checkboxes.filter((checkbox) => !checkbox.closest('tr')?.hidden);
+                        selectAll.checked = visible.length > 0 && visible.every((checkbox) => checkbox.checked);
+                        selectAll.indeterminate = visible.some((checkbox) => checkbox.checked) && !selectAll.checked;
+                    }
+                };
+
+                selectAll?.addEventListener('change', () => {
+                    checkboxes.forEach((checkbox) => {
+                        if (!checkbox.closest('tr')?.hidden) checkbox.checked = selectAll.checked;
+                    });
+                    updateCorrectionSelection();
+                });
+                checkboxes.forEach((checkbox) => checkbox.addEventListener('change', updateCorrectionSelection));
+                correctionForm.addEventListener('submit', (event) => {
+                    const selected = checkboxes.filter((checkbox) => checkbox.checked).length;
+                    if (selected === 0) {
+                        event.preventDefault();
+                        window.alert('Selecciona al menos una orden.');
+                        return;
+                    }
+                    if (event.submitter === executeButton) {
+                        if (selected > 10) {
+                            event.preventDefault();
+                            window.alert('Selecciona como maximo 10 ordenes por ejecucion.');
+                            return;
+                        }
+                        if (!window.confirm(`Se corregiran ${selected} orden(es) en Packiyo. ¿Quieres continuar?`)) {
+                            event.preventDefault();
+                        }
+                    }
+                });
+                table?.addEventListener('input', updateCorrectionSelection);
+                updateCorrectionSelection();
             }
         })();
     </script>
@@ -2879,10 +2949,6 @@ final class DashboardController
                             <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
                             <button class="button secondary" type="submit">Previsualizar todas las asignadas</button>
                         </form>
-                        <form method="post" action="<?= $this->e($this->url('/order-corrections/execute')) ?>">
-                            <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
-                            <button class="button danger" type="submit" <?= $writeEnabled ? '' : 'disabled' ?>>Ejecutar asignadas (max. 10 ordenes)</button>
-                        </form>
                         <a class="button secondary" href="<?= $this->e($this->url('/order-corrections/export?') . http_build_query(['job_id' => $jobId])) ?>">Exportar CSV</a>
                     </div>
                     <form method="get" action="<?= $this->e($this->url('/')) ?>" class="filters">
@@ -2912,22 +2978,42 @@ final class DashboardController
                             <?php endif; ?>
                         </div>
                     <?php else: ?>
+                        <form id="correction-selected-orders-form" method="post" action="<?= $this->e($this->url('/order-corrections/preview')) ?>" class="correction-selection-bar" data-correction-selected-form>
+                            <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
+                            <input type="hidden" name="selection_mode" value="orders">
+                            <strong>Ordenes seleccionadas</strong>
+                            <span class="selection-count" data-correction-selection-count>0 orden(es) seleccionada(s)</span>
+                            <button class="button secondary small" type="submit">Previsualizar seleccionadas</button>
+                            <button class="button danger small" type="submit" formaction="<?= $this->e($this->url('/order-corrections/execute')) ?>" data-correction-execute <?= $writeEnabled ? '' : 'disabled' ?>>Corregir seleccionadas en Packiyo</button>
+                        </form>
                         <div class="scroll-table order-table-scroll">
                             <table data-sort-table="order-corrections">
                                 <thead>
                                     <tr>
+                                        <th><input class="order-checkbox" type="checkbox" data-correction-select-all aria-label="Seleccionar todas las ordenes visibles"></th>
                                         <th>Orden</th><th>Cliente / estado</th><th>Linea actual</th><th>JTL</th>
                                         <th>Cantidad / precio</th><th>Producto Packiyo</th><th>Resultado</th>
                                     </tr>
                                 </thead>
                                 <tbody>
+                                <?php $renderedOrderIds = []; ?>
                                 <?php foreach ($lines as $line): ?>
                                     <?php
                                         $customerId = (string) ($line['packiyo_customer_id'] ?? '');
+                                        $orderId = (string) ($line['packiyo_order_id'] ?? '');
+                                        $showOrderCheckbox = $orderId !== '' && !isset($renderedOrderIds[$orderId]);
+                                        $orderSelectable = $showOrderCheckbox
+                                            && OrderCorrectionService::isEditableStatus((string) ($line['packiyo_status'] ?? ''));
+                                        $renderedOrderIds[$orderId] = true;
                                         $catalog = is_array($catalogs[$customerId] ?? null) ? $catalogs[$customerId] : [];
                                         $suggestions = is_array($line['suggestions'] ?? null) ? $line['suggestions'] : [];
                                     ?>
                                     <tr>
+                                        <td>
+                                            <?php if ($showOrderCheckbox): ?>
+                                                <input class="order-checkbox" type="checkbox" name="order_ids[]" value="<?= $this->e($orderId) ?>" form="correction-selected-orders-form" data-correction-order-checkbox aria-label="Seleccionar orden <?= $this->e($line['packiyo_order_number'] ?: $orderId) ?>" <?= $orderSelectable ? '' : 'disabled title="El estado de esta orden no permite modificarla"' ?>>
+                                            <?php endif; ?>
+                                        </td>
                                         <td>
                                             <strong><?= $this->e($line['packiyo_order_number'] ?: $line['packiyo_order_id']) ?></strong>
                                             <div class="muted">Packiyo <?= $this->e($line['packiyo_order_id']) ?></div>

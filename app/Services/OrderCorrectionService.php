@@ -234,6 +234,12 @@ final class OrderCorrectionService
         return ['orders' => $orders, 'write_enabled' => $this->writeEnabled()];
     }
 
+    /** @param array<int, string> $orderIds @return array<string, mixed> */
+    public function previewOrders(string $jobId, array $orderIds, ?int $userId = null): array
+    {
+        return $this->preview($jobId, $this->lineIdsForOrders($jobId, $orderIds), $userId);
+    }
+
     /** @param array<int, int> $lineIds @return array<string, int> */
     public function execute(string $jobId, array $lineIds, ?int $userId = null): array
     {
@@ -298,6 +304,16 @@ final class OrderCorrectionService
             }
         }
         return $summary;
+    }
+
+    /** @param array<int, string> $orderIds @return array<string, int> */
+    public function executeOrders(string $jobId, array $orderIds, ?int $userId = null): array
+    {
+        $orderIds = self::normalizeOrderIds($orderIds);
+        if (count($orderIds) > 10) {
+            throw new RuntimeException('Selecciona como maximo 10 ordenes por ejecucion.');
+        }
+        return $this->execute($jobId, $this->lineIdsForOrders($jobId, $orderIds), $userId);
     }
 
     /** @param array<int, int> $lineIds */
@@ -697,6 +713,42 @@ final class OrderCorrectionService
             throw new RuntimeException('Selecciona lineas con una asignacion confirmada.');
         }
         return $lines;
+    }
+
+    /** @param array<int, string> $orderIds @return array<int, int> */
+    private function lineIdsForOrders(string $jobId, array $orderIds): array
+    {
+        $orderIds = self::normalizeOrderIds($orderIds);
+        if ($orderIds === []) {
+            throw new RuntimeException('Selecciona al menos una orden.');
+        }
+
+        $wanted = array_fill_keys($orderIds, true);
+        $lines = array_values(array_filter(
+            $this->store()->lines($jobId, [], 5000),
+            static fn (array $line): bool => isset($wanted[trim((string) ($line['packiyo_order_id'] ?? ''))])
+        ));
+        if ($lines === []) {
+            throw new RuntimeException('Las ordenes seleccionadas no pertenecen a este analisis.');
+        }
+
+        foreach ($lines as $line) {
+            if (trim((string) ($line['proposed_product_id'] ?? '')) === ''
+                || trim((string) ($line['proposed_sku'] ?? '')) === '') {
+                throw new RuntimeException('Todas las lineas JTL-LINE de cada orden seleccionada deben tener un producto Packiyo asignado.');
+            }
+        }
+
+        return array_values(array_map(static fn (array $line): int => (int) $line['id'], $lines));
+    }
+
+    /** @param array<int, string> $orderIds @return array<int, string> */
+    private static function normalizeOrderIds(array $orderIds): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            static fn (mixed $orderId): string => is_scalar($orderId) ? trim((string) $orderId) : '',
+            $orderIds
+        ))));
     }
 
     /** @param array<int, array<string, mixed>> $lines @return array<string, array<int, array<string, mixed>>> */
