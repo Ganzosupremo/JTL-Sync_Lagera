@@ -213,6 +213,7 @@ final class OrderCorrectionService
             try {
                 $current = $this->packiyoClient()->getOrder($orderId);
                 $currentItems = self::extractPackiyoLineItems($current);
+                self::assertNoCancelledPlaceholderLines($currentItems, $orderLines);
                 $status = self::orderStatus($current);
                 self::assertCustomerUnchanged($current, $orderLines);
                 if (!self::isEditableStatus($status)) {
@@ -229,10 +230,11 @@ final class OrderCorrectionService
                 }
                 $orders[$orderId] = ['status' => 'ready', 'payload' => $payload, 'hash' => $hash];
             } catch (Throwable $exception) {
+                $result = self::isCancelledPlaceholderError($exception) ? 'ignored_cancelled' : 'skipped';
                 foreach ($orderLines as $line) {
-                    $this->store()->markResult((int) $line['id'], 'skipped', $exception->getMessage());
+                    $this->store()->markResult((int) $line['id'], $result, $exception->getMessage());
                 }
-                $orders[$orderId] = ['status' => 'skipped', 'error' => $exception->getMessage()];
+                $orders[$orderId] = ['status' => $result, 'error' => $exception->getMessage()];
             }
         }
         return ['orders' => $orders, 'write_enabled' => $this->writeEnabled()];
@@ -264,6 +266,7 @@ final class OrderCorrectionService
             try {
                 $current = $this->packiyoClient()->getOrder($orderId);
                 $items = self::extractPackiyoLineItems($current);
+                self::assertNoCancelledPlaceholderLines($items, $orderLines);
                 $status = self::orderStatus($current);
                 self::assertCustomerUnchanged($current, $orderLines);
                 if (!self::isEditableStatus($status)) {
@@ -302,12 +305,15 @@ final class OrderCorrectionService
                     $this->confirmAtomicWriteSettings();
                 }
             } catch (Throwable $exception) {
-                $kind = str_contains(strtolower($exception->getMessage()), 'no editable')
-                    || str_contains(strtolower($exception->getMessage()), 'cambio desde') ? 'skipped' : 'failed';
+                $cancelledPlaceholder = self::isCancelledPlaceholderError($exception);
+                $kind = $cancelledPlaceholder ? 'ignored_cancelled' : (
+                    str_contains(strtolower($exception->getMessage()), 'no editable')
+                    || str_contains(strtolower($exception->getMessage()), 'cambio desde') ? 'skipped' : 'failed'
+                );
                 foreach ($orderLines as $line) {
                     $this->store()->markResult((int) $line['id'], $kind, $exception->getMessage());
                     $this->store()->addAttempt($jobId, (int) $line['id'], $orderId, 'execute', $line['current_snapshot'], null, $kind, $exception->getMessage(), $userId);
-                    $summary[$kind]++;
+                    $summary[$cancelledPlaceholder ? 'skipped' : $kind]++;
                 }
             }
         }
@@ -462,7 +468,41 @@ final class OrderCorrectionService
 
     public static function isFinalCorrectionResult(string $result): bool
     {
-        return in_array(strtolower(trim($result)), ['corrected', 'already_corrected'], true);
+        return in_array(strtolower(trim($result)), ['corrected', 'already_corrected', 'ignored_cancelled'], true);
+    }
+
+    /** @param array<string, mixed> $item */
+    public static function isCancelledLineItem(array $item): bool
+    {
+        $status = strtolower(self::lineString($item, [
+            'status', 'state', 'item_status', 'itemStatus', 'order_item_status', 'orderItemStatus',
+        ]));
+        if (str_contains($status, 'cancel')) {
+            return true;
+        }
+        foreach (['cancelled_at', 'canceled_at', 'cancelledAt', 'canceledAt'] as $key) {
+            if (isset($item[$key]) && trim((string) $item[$key]) !== '') {
+                return true;
+            }
+        }
+        foreach (['cancelled', 'canceled', 'is_cancelled', 'is_canceled', 'isCancelled', 'isCanceled'] as $key) {
+            if (!array_key_exists($key, $item)) {
+                continue;
+            }
+            $value = $item[$key];
+            if ($value === true || (is_numeric($value) && (float) $value > 0)
+                || (is_string($value) && in_array(strtolower(trim($value)), ['true', 'yes', 'cancelled', 'canceled'], true))) {
+                return true;
+            }
+        }
+        $quantity = self::lineNumber($item, ['quantity', 'qty', 'amount'], -1);
+        if (abs($quantity) < 0.0001) {
+            return true;
+        }
+        return self::lineNumber($item, [
+            'cancelled_quantity', 'canceled_quantity', 'quantity_cancelled', 'quantity_canceled',
+            'cancelledQuantity', 'canceledQuantity',
+        ], 0) > 0;
     }
 
     /** @param array<int, array<string, mixed>> $items */
@@ -551,6 +591,9 @@ final class OrderCorrectionService
         foreach ($items as $index => $item) {
             $sku = self::itemSku($item);
             if (!self::isPlaceholderSku($sku)) {
+                continue;
+            }
+            if (self::isCancelledLineItem($item)) {
                 continue;
             }
             $jtlItem = self::matchJtlItem($item, $index, $jtl['items']);
@@ -691,6 +734,25 @@ final class OrderCorrectionService
             }
         }
         return $corrections !== [];
+    }
+
+    /** @param array<int, array<string, mixed>> $items @param array<int, array<string, mixed>> $corrections */
+    private static function assertNoCancelledPlaceholderLines(array $items, array $corrections): void
+    {
+        foreach ($corrections as $line) {
+            $originalSku = trim((string) ($line['original_sku'] ?? ''));
+            foreach ($items as $item) {
+                if ($originalSku !== '' && strcasecmp(self::itemSku($item), $originalSku) === 0
+                    && self::isCancelledLineItem($item)) {
+                    throw new RuntimeException('La linea JTL-LINE esta cancelada en Packiyo y la orden ya fue corregida manualmente.');
+                }
+            }
+        }
+    }
+
+    private static function isCancelledPlaceholderError(Throwable $exception): bool
+    {
+        return str_contains(strtolower($exception->getMessage()), 'jtl-line esta cancelada');
     }
 
     /** @param array<int, array<string, mixed>> $lines */

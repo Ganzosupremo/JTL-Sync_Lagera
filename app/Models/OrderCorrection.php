@@ -220,7 +220,7 @@ final class OrderCorrection
         $name = (string) $product['name'];
         $sameAssignment = (string) ($current['proposed_product_id'] ?? '') === $id
             && (string) ($current['proposed_sku'] ?? '') === $sku;
-        if ($sameAssignment && in_array((string) ($current['result'] ?? ''), ['corrected', 'already_corrected'], true)) {
+        if ($sameAssignment && in_array((string) ($current['result'] ?? ''), ['corrected', 'already_corrected', 'ignored_cancelled'], true)) {
             return false;
         }
         $statement = $this->connection()->prepare(

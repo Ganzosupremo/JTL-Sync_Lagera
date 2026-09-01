@@ -2990,11 +2990,17 @@ final class DashboardController
                             foreach ($lines as $candidateLine) {
                                 $candidateOrderId = (string) ($candidateLine['packiyo_order_id'] ?? '');
                                 if ($candidateOrderId === '') { continue; }
-                                $state = $orderSelectionStates[$candidateOrderId] ?? ['editable' => true, 'pending' => false];
+                                $state = $orderSelectionStates[$candidateOrderId] ?? ['editable' => true, 'pending' => false, 'cancelled_line' => false];
+                                $snapshotItems = is_array($candidateLine['current_snapshot'] ?? null) ? $candidateLine['current_snapshot'] : [];
+                                $snapshotIndex = (int) ($candidateLine['line_index'] ?? -1);
+                                $cancelledLine = isset($snapshotItems[$snapshotIndex])
+                                    && is_array($snapshotItems[$snapshotIndex])
+                                    && OrderCorrectionService::isCancelledLineItem($snapshotItems[$snapshotIndex]);
                                 $state['editable'] = $state['editable']
                                     && OrderCorrectionService::isEditableStatus((string) ($candidateLine['packiyo_status'] ?? ''));
                                 $state['pending'] = $state['pending']
-                                    || !OrderCorrectionService::isFinalCorrectionResult((string) ($candidateLine['result'] ?? ''));
+                                    || (!$cancelledLine && !OrderCorrectionService::isFinalCorrectionResult((string) ($candidateLine['result'] ?? '')));
+                                $state['cancelled_line'] = $state['cancelled_line'] || $cancelledLine;
                                 $orderSelectionStates[$candidateOrderId] = $state;
                             }
                         ?>
@@ -3022,11 +3028,13 @@ final class DashboardController
                                         $customerId = (string) ($line['packiyo_customer_id'] ?? '');
                                         $orderId = (string) ($line['packiyo_order_id'] ?? '');
                                         $showOrderCheckbox = $orderId !== '' && !isset($renderedOrderIds[$orderId]);
-                                        $orderState = $orderSelectionStates[$orderId] ?? ['editable' => false, 'pending' => false];
+                                        $orderState = $orderSelectionStates[$orderId] ?? ['editable' => false, 'pending' => false, 'cancelled_line' => false];
                                         $orderSelectable = $showOrderCheckbox && $orderState['editable'] && $orderState['pending'];
-                                        $orderDisabledReason = !$orderState['editable']
+                                        $orderDisabledReason = $orderState['cancelled_line']
+                                            ? 'La linea JTL-LINE esta cancelada y la orden ya fue corregida manualmente'
+                                            : (!$orderState['editable']
                                             ? 'El estado de esta orden no permite modificarla'
-                                            : 'Esta orden ya fue corregida; cambia el producto asignado para habilitarla nuevamente';
+                                            : 'Esta orden ya fue corregida; cambia el producto asignado para habilitarla nuevamente');
                                         $renderedOrderIds[$orderId] = true;
                                         $catalog = is_array($catalogs[$customerId] ?? null) ? $catalogs[$customerId] : [];
                                         $suggestions = is_array($line['suggestions'] ?? null) ? $line['suggestions'] : [];

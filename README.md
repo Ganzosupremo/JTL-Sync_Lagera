@@ -279,3 +279,5 @@ La tabla permite seleccionar ordenes editables de forma individual. La previsual
 Al corregir una orden, si Packiyo no devuelve `shipping_method_id`, el payload conserva `shipping_method_name` cuando existe y usa `Generic` como fallback requerido por la API.
 
 Las lineas con resultado `corrected` o `already_corrected` quedan excluidas de previsualizaciones y ejecuciones posteriores. Volver a elegir el mismo producto no cambia ese estado; asignar un producto destino diferente reinicia la previsualizacion y permite enviar la nueva correccion.
+
+Una linea `JTL-LINE-*` cancelada en Packiyo se omite porque indica que la orden ya fue corregida manualmente agregando el producto correcto. La deteccion reconoce el estado o indicador de cancelacion, la cantidad cancelada y las lineas cuya cantidad quedo en cero. Los analisis nuevos no la guardan y los trabajos existentes la marcan como `ignored_cancelled` al volver a leer la orden, antes de cualquier escritura.
