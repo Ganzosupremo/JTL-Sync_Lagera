@@ -18,7 +18,7 @@ return [
     'find_order_endpoint' => Setting::get('PACKIYO_FIND_ORDER_ENDPOINT', '/orders'),
     'customers_endpoint' => Setting::get('PACKIYO_CUSTOMERS_ENDPOINT', '/customers'),
     'products_endpoint' => Setting::get('PACKIYO_PRODUCTS_ENDPOINT', '/products'),
-    'order_correction_include' => Setting::get('PACKIYO_ORDER_CORRECTION_INCLUDE', 'order_items,customer'),
+    'order_correction_include' => Setting::get('PACKIYO_ORDER_CORRECTION_INCLUDE', 'order_items,order_items.product,customer'),
     'order_correction_write_enabled' => Setting::get('PACKIYO_ORDER_CORRECTION_WRITE_ENABLED', false),
     'order_correction_atomic_confirmed' => Setting::get('PACKIYO_ORDER_CORRECTION_ATOMIC_CONFIRMED', false),
     'order_correction_atomic_method' => Setting::get('PACKIYO_ORDER_CORRECTION_ATOMIC_METHOD', 'PATCH'),

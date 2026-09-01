@@ -38,11 +38,23 @@ final class PackiyoClient
     }
 
     /** @return array<string, mixed> */
-    public function listOrdersPage(int $page = 1, int $pageSize = 25): array
+    public function listOrdersPage(string $orderedFrom, string $orderedTo, int $page = 1, int $pageSize = 25): array
     {
+        $includes = array_values(array_unique(array_filter(array_map(
+            static fn (string $value): string => trim($value),
+            explode(',', (string) ($this->config['order_correction_include'] ?? 'order_items,order_items.product,customer'))
+        ))));
+        foreach (['order_items', 'order_items.product', 'customer'] as $requiredInclude) {
+            if (!in_array($requiredInclude, $includes, true)) {
+                $includes[] = $requiredInclude;
+            }
+        }
+
         return $this->http->get((string) $this->config['orders_endpoint'], [
             'query' => [
-                'include' => (string) ($this->config['order_correction_include'] ?? 'order_items,customer'),
+                'filter[ordered_at_min]' => $this->dateForFilter($orderedFrom),
+                'filter[ordered_at_max]' => $this->dateForFilter($orderedTo),
+                'include' => implode(',', $includes),
                 'page[number]' => max(1, $page),
                 'page[size]' => max(1, min(100, $pageSize)),
             ],

@@ -56,8 +56,10 @@ final class OrderCorrectionService
                 }
 
                 $response = $this->packiyoClient()->listOrdersPage(
+                    (string) $job['window_start'],
+                    (string) $job['window_end'],
                     $page,
-                    5
+                    100
                 );
                 $orders = self::resources($response);
                 $detected = 0;
@@ -79,7 +81,7 @@ final class OrderCorrectionService
                     }
                 }
 
-                $finished = $orders === [] || !self::hasNextPage($response, $page, 5);
+                $finished = $orders === [] || !self::hasNextPage($response, $page, 100);
                 $page++;
                 $offset = 0;
                 $this->store()->advanceJob(
@@ -401,21 +403,21 @@ final class OrderCorrectionService
     {
         $resource = self::firstResource($order);
         $attributes = is_array($resource['attributes'] ?? null) ? $resource['attributes'] : $resource;
-        return self::lineString($attributes, ['status', 'state', 'order_status', 'orderStatus']);
+        return self::lineString($attributes, ['status_text', 'statusText', 'status', 'state', 'order_status', 'orderStatus']);
     }
 
     /** @param array<string, mixed> $order */
     public static function isOrderWithinWindow(array $order, string $windowStart, string $windowEnd): bool
     {
         $attributes = is_array($order['attributes'] ?? null) ? $order['attributes'] : $order;
-        $createdAt = self::lineString($attributes, ['created_at', 'createdAt', 'created', 'ordered_at', 'orderedAt']);
+        $orderedAt = self::lineString($attributes, ['ordered_at', 'orderedAt', 'created_at', 'createdAt', 'created']);
 
-        if ($createdAt === '') {
+        if ($orderedAt === '') {
             // Do not discard an order only because the list response omitted its timestamp.
             return true;
         }
 
-        $createdTimestamp = strtotime($createdAt);
+        $createdTimestamp = strtotime($orderedAt);
         $startTimestamp = strtotime($windowStart);
         $endTimestamp = strtotime($windowEnd);
 
