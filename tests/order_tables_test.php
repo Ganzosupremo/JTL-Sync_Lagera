@@ -102,6 +102,10 @@ assertContainsText("selected === 0", (string) $controllerSource, 'Una seleccion 
 assertContainsText("selected > maxOrders", (string) $controllerSource, 'La interfaz debe respetar el limite del modo de prueba o lote.');
 assertContainsText('Modo prueba: una orden', (string) $controllerSource, 'La primera escritura debe estar limitada a una orden.');
 
+$correctionSource = file_get_contents(dirname(__DIR__) . '/app/Services/OrderCorrectionService.php');
+assertContainsText("'shipping_method_name'", (string) $correctionSource, 'La correccion debe incluir un nombre de metodo de envio cuando Packiyo no devuelve un ID.');
+assertContainsText("'Generic'", (string) $correctionSource, 'Generic debe ser el metodo de envio fallback aceptado por Packiyo.');
+
 echo "order_tables_test: OK\n";
 
 function assertContainsText(string $expected, string $actual, string $message): void

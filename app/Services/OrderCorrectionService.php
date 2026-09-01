@@ -402,6 +402,8 @@ final class OrderCorrectionService
     /** @param array<int, array<string, mixed>> $items @param array<int, array<string, mixed>> $corrections */
     public static function buildReplacementPayload(string $orderId, array $order, array $items, array $corrections): array
     {
+        $resource = self::firstResource($order);
+        $orderAttributes = is_array($resource['attributes'] ?? null) ? $resource['attributes'] : $resource;
         $byIndex = [];
         foreach ($corrections as $line) {
             $byIndex[(int) $line['line_index']] = $line;
@@ -419,11 +421,17 @@ final class OrderCorrectionService
             $items[$index]['product_id'] = (string) $line['proposed_product_id'];
             $items[$index]['packiyo_product_id'] = (string) $line['proposed_product_id'];
         }
+        $attributes = ['order_item_data' => $items];
+        $shippingMethodId = self::lineString($orderAttributes, ['shipping_method_id', 'shippingMethodId']);
+        if ($shippingMethodId === '') {
+            $shippingMethodName = self::lineString($orderAttributes, ['shipping_method_name', 'shippingMethodName']);
+            $attributes['shipping_method_name'] = $shippingMethodName !== '' ? $shippingMethodName : 'Generic';
+        }
         return [
             'data' => [
-                'type' => (string) (self::firstResource($order)['type'] ?? 'orders'),
+                'type' => (string) ($resource['type'] ?? 'orders'),
                 'id' => $orderId,
-                'attributes' => ['order_item_data' => $items],
+                'attributes' => $attributes,
             ],
         ];
     }
