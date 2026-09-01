@@ -62,15 +62,21 @@ final class PackiyoClient
     }
 
     /** @param array<string, mixed> $payload @return array<string, mixed> */
-    public function atomicReplaceOrderLines(string $orderId, array $payload): array
+    public function atomicReplaceOrderLines(string $orderId, array $payload, bool $singleOrderTest = false): array
     {
         $enabled = (bool) ($this->config['order_correction_write_enabled'] ?? false);
         $confirmed = (bool) ($this->config['order_correction_atomic_confirmed'] ?? false);
         $endpoint = trim((string) ($this->config['order_correction_atomic_endpoint'] ?? ''));
+        if ($endpoint === '') {
+            $endpoint = trim((string) ($this->config['order_endpoint'] ?? '/orders/{id}'));
+        }
         $method = strtoupper(trim((string) ($this->config['order_correction_atomic_method'] ?? 'PATCH')));
 
-        if (!$enabled || !$confirmed || $endpoint === '') {
+        if (!$singleOrderTest && (!$enabled || !$confirmed)) {
             throw new \RuntimeException('La escritura remota de correcciones no esta habilitada y confirmada como atomica.');
+        }
+        if ($endpoint === '') {
+            throw new \RuntimeException('No hay un endpoint Packiyo configurado para corregir la orden.');
         }
         if (!in_array($method, ['POST', 'PUT', 'PATCH'], true)) {
             throw new \RuntimeException('Metodo atomico Packiyo no soportado: ' . $method);

@@ -99,7 +99,8 @@ assertContainsText('data-correction-selected-form', (string) $controllerSource, 
 assertContainsText('name="order_ids[]"', (string) $controllerSource, 'Cada orden debe poder seleccionarse para previsualizarla o corregirla.');
 assertContainsText('Corregir seleccionadas en Packiyo', (string) $controllerSource, 'La accion remota debe indicar claramente que solo afecta la seleccion.');
 assertContainsText("selected === 0", (string) $controllerSource, 'Una seleccion vacia no debe ejecutar todas las ordenes por accidente.');
-assertContainsText("selected > 10", (string) $controllerSource, 'La interfaz debe respetar el maximo de diez ordenes por lote.');
+assertContainsText("selected > maxOrders", (string) $controllerSource, 'La interfaz debe respetar el limite del modo de prueba o lote.');
+assertContainsText('Modo prueba: una orden', (string) $controllerSource, 'La primera escritura debe estar limitada a una orden.');
 
 echo "order_tables_test: OK\n";
 

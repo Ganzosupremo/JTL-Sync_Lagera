@@ -1421,6 +1421,7 @@ final class DashboardController
                 const selectAll = document.querySelector('[data-correction-select-all]');
                 const count = correctionForm.querySelector('[data-correction-selection-count]');
                 const executeButton = correctionForm.querySelector('[data-correction-execute]');
+                const maxOrders = Number.parseInt(correctionForm.dataset.correctionMaxOrders || '1', 10);
 
                 const updateCorrectionSelection = () => {
                     const selected = checkboxes.filter((checkbox) => checkbox.checked).length;
@@ -1447,9 +1448,11 @@ final class DashboardController
                         return;
                     }
                     if (event.submitter === executeButton) {
-                        if (selected > 10) {
+                        if (selected > maxOrders) {
                             event.preventDefault();
-                            window.alert('Selecciona como maximo 10 ordenes por ejecucion.');
+                            window.alert(maxOrders === 1
+                                ? 'Para la primera prueba selecciona solamente una orden.'
+                                : `Selecciona como maximo ${maxOrders} ordenes por ejecucion.`);
                             return;
                         }
                         if (!window.confirm(`Se corregiran ${selected} orden(es) en Packiyo. ¿Quieres continuar?`)) {
@@ -2859,6 +2862,8 @@ final class DashboardController
         $defaultStartDate = date('Y-m-d', strtotime('-60 days'));
         $jobId = (string) ($job['id'] ?? '');
         $writeEnabled = !empty($data['write_enabled']);
+        $testWriteEnabled = !empty($data['test_write_enabled']);
+        $executionLimit = $writeEnabled ? 10 : 1;
         ob_start();
         ?>
             <section>
@@ -2903,11 +2908,13 @@ final class DashboardController
                     <?php endif; ?>
                 </form>
                 <div class="notice">
-                    <strong><?= $writeEnabled ? 'Escritura atomica habilitada' : 'Modo lectura/simulacion' ?></strong>.
-                    <?php if (!$writeEnabled): ?>
-                        Las acciones remotas estan bloqueadas. Usa la previsualizacion y el CSV hasta confirmar un endpoint atomico con una orden de prueba.
-                    <?php else: ?>
+                    <strong><?= $writeEnabled ? 'Escritura atomica habilitada' : ($testWriteEnabled ? 'Modo prueba: una orden' : 'Modo lectura/simulacion') ?></strong>.
+                    <?php if ($writeEnabled): ?>
                         Cada orden se vuelve a leer, se valida y se verifica despues de escribir; se procesan como maximo diez por lote.
+                    <?php elseif ($testWriteEnabled): ?>
+                        Selecciona y previsualiza una sola orden. Si Packiyo confirma correctamente el reemplazo, la app habilitara automaticamente los lotes de hasta diez ordenes.
+                    <?php else: ?>
+                        Las acciones remotas estan bloqueadas porque falta un endpoint de correccion valido.
                     <?php endif; ?>
                 </div>
                 <?php if ($job === null): ?>
@@ -2978,13 +2985,13 @@ final class DashboardController
                             <?php endif; ?>
                         </div>
                     <?php else: ?>
-                        <form id="correction-selected-orders-form" method="post" action="<?= $this->e($this->url('/order-corrections/preview')) ?>" class="correction-selection-bar" data-correction-selected-form>
+                        <form id="correction-selected-orders-form" method="post" action="<?= $this->e($this->url('/order-corrections/preview')) ?>" class="correction-selection-bar" data-correction-selected-form data-correction-max-orders="<?= $this->e($executionLimit) ?>">
                             <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
                             <input type="hidden" name="selection_mode" value="orders">
                             <strong>Ordenes seleccionadas</strong>
                             <span class="selection-count" data-correction-selection-count>0 orden(es) seleccionada(s)</span>
                             <button class="button secondary small" type="submit">Previsualizar seleccionadas</button>
-                            <button class="button danger small" type="submit" formaction="<?= $this->e($this->url('/order-corrections/execute')) ?>" data-correction-execute <?= $writeEnabled ? '' : 'disabled' ?>>Corregir seleccionadas en Packiyo</button>
+                            <button class="button danger small" type="submit" formaction="<?= $this->e($this->url('/order-corrections/execute')) ?>" data-correction-execute <?= ($writeEnabled || $testWriteEnabled) ? '' : 'disabled' ?>><?= $writeEnabled ? 'Corregir seleccionadas en Packiyo' : 'Probar correccion de una orden' ?></button>
                         </form>
                         <div class="scroll-table order-table-scroll">
                             <table data-sort-table="order-corrections">

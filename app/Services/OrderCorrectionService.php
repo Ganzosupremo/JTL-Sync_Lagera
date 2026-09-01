@@ -14,6 +14,7 @@ use App\Models\ProductNameMapping;
 use App\Models\ProductSkuAlias;
 use App\Support\Config;
 use App\Support\HttpException;
+use App\Support\Setting;
 use RuntimeException;
 use Throwable;
 
@@ -154,6 +155,7 @@ final class OrderCorrectionService
             ],
             'catalogs' => $catalogs,
             'write_enabled' => $this->writeEnabled(),
+            'test_write_enabled' => $this->testWriteEnabled(),
         ];
     }
 
@@ -241,9 +243,9 @@ final class OrderCorrectionService
     }
 
     /** @param array<int, int> $lineIds @return array<string, int> */
-    public function execute(string $jobId, array $lineIds, ?int $userId = null): array
+    public function execute(string $jobId, array $lineIds, ?int $userId = null, bool $singleOrderTest = false): array
     {
-        if (!$this->writeEnabled()) {
+        if (!$this->writeEnabled() && !$singleOrderTest) {
             throw new RuntimeException(
                 'Modo simulacion activo. Configure y confirme primero un endpoint Packiyo de reemplazo atomico.'
             );
@@ -251,9 +253,10 @@ final class OrderCorrectionService
         $lines = array_slice($this->assignedLines($jobId, $lineIds), 0, 100);
         $summary = ['corrected' => 0, 'skipped' => 0, 'failed' => 0];
         $orderCount = 0;
+        $orderLimit = $singleOrderTest ? 1 : 10;
         foreach ($this->groupByOrder($lines) as $orderId => $orderLines) {
             $orderId = (string) $orderId;
-            if (++$orderCount > 10) {
+            if (++$orderCount > $orderLimit) {
                 break;
             }
             try {
@@ -285,13 +288,16 @@ final class OrderCorrectionService
                     }
                 }
                 $payload = self::buildReplacementPayload($orderId, $current, $items, $orderLines);
-                $this->atomicReplaceWithRetry($orderId, $payload);
+                $this->atomicReplaceWithRetry($orderId, $payload, $singleOrderTest);
                 $after = $this->packiyoClient()->getOrder($orderId);
                 self::verifyReplacement($items, self::extractPackiyoLineItems($after), $orderLines);
                 foreach ($orderLines as $line) {
                     $this->store()->markResult((int) $line['id'], 'corrected');
                     $this->store()->addAttempt($jobId, (int) $line['id'], $orderId, 'execute', $items, $after, 'corrected', null, $userId);
                     $summary['corrected']++;
+                }
+                if ($singleOrderTest) {
+                    $this->confirmAtomicWriteSettings();
                 }
             } catch (Throwable $exception) {
                 $kind = str_contains(strtolower($exception->getMessage()), 'no editable')
@@ -310,10 +316,14 @@ final class OrderCorrectionService
     public function executeOrders(string $jobId, array $orderIds, ?int $userId = null): array
     {
         $orderIds = self::normalizeOrderIds($orderIds);
-        if (count($orderIds) > 10) {
-            throw new RuntimeException('Selecciona como maximo 10 ordenes por ejecucion.');
+        $singleOrderTest = !$this->writeEnabled();
+        $limit = $singleOrderTest ? 1 : 10;
+        if (count($orderIds) > $limit) {
+            throw new RuntimeException($singleOrderTest
+                ? 'Antes de habilitar los lotes debes probar con exactamente una orden.'
+                : 'Selecciona como maximo 10 ordenes por ejecucion.');
         }
-        return $this->execute($jobId, $this->lineIdsForOrders($jobId, $orderIds), $userId);
+        return $this->execute($jobId, $this->lineIdsForOrders($jobId, $orderIds), $userId, $singleOrderTest);
     }
 
     /** @param array<int, int> $lineIds */
@@ -686,11 +696,11 @@ final class OrderCorrectionService
     }
 
     /** @param array<string, mixed> $payload */
-    private function atomicReplaceWithRetry(string $orderId, array $payload): void
+    private function atomicReplaceWithRetry(string $orderId, array $payload, bool $singleOrderTest = false): void
     {
         for ($attempt = 1; $attempt <= 2; $attempt++) {
             try {
-                $this->packiyoClient()->atomicReplaceOrderLines($orderId, $payload);
+                $this->packiyoClient()->atomicReplaceOrderLines($orderId, $payload, $singleOrderTest);
                 return;
             } catch (HttpException $exception) {
                 if ($attempt >= 2 || !in_array($exception->statusCode(), [408, 429, 500, 502, 503, 504], true)) {
@@ -778,6 +788,30 @@ final class OrderCorrectionService
         return (bool) Config::get('packiyo.order_correction_write_enabled', false)
             && (bool) Config::get('packiyo.order_correction_atomic_confirmed', false)
             && trim((string) Config::get('packiyo.order_correction_atomic_endpoint', '')) !== '';
+    }
+
+    private function testWriteEnabled(): bool
+    {
+        $endpoint = trim((string) Config::get('packiyo.order_correction_atomic_endpoint', ''));
+        if ($endpoint === '') {
+            $endpoint = trim((string) Config::get('packiyo.order_endpoint', '/orders/{id}'));
+        }
+        $method = strtoupper(trim((string) Config::get('packiyo.order_correction_atomic_method', 'PATCH')));
+        return $endpoint !== '' && in_array($method, ['POST', 'PUT', 'PATCH'], true);
+    }
+
+    private function confirmAtomicWriteSettings(): void
+    {
+        $endpoint = trim((string) Config::get('packiyo.order_correction_atomic_endpoint', ''));
+        if ($endpoint === '') {
+            $endpoint = trim((string) Config::get('packiyo.order_endpoint', '/orders/{id}'));
+        }
+        Setting::putMany([
+            'PACKIYO_ORDER_CORRECTION_WRITE_ENABLED' => 'true',
+            'PACKIYO_ORDER_CORRECTION_ATOMIC_CONFIRMED' => 'true',
+            'PACKIYO_ORDER_CORRECTION_ATOMIC_METHOD' => strtoupper(trim((string) Config::get('packiyo.order_correction_atomic_method', 'PATCH'))),
+            'PACKIYO_ORDER_CORRECTION_ATOMIC_ENDPOINT' => $endpoint,
+        ]);
     }
 
     /** @return array<string, mixed> */

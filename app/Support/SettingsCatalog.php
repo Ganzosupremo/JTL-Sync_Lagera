@@ -114,7 +114,7 @@ final class SettingsCatalog
                     self::boolean('PACKIYO_ORDER_CORRECTION_WRITE_ENABLED', 'Habilitar escritura de correcciones', false),
                     self::boolean('PACKIYO_ORDER_CORRECTION_ATOMIC_CONFIRMED', 'Operacion atomica confirmada con orden de prueba', false),
                     self::select('PACKIYO_ORDER_CORRECTION_ATOMIC_METHOD', 'Metodo atomico', 'PATCH', ['PATCH', 'PUT', 'POST']),
-                    self::text('PACKIYO_ORDER_CORRECTION_ATOMIC_ENDPOINT', 'Endpoint atomico ({id})', ''),
+                    self::text('PACKIYO_ORDER_CORRECTION_ATOMIC_ENDPOINT', 'Endpoint atomico ({id})', '/orders/{id}'),
                 ],
             ],
         ];

@@ -22,6 +22,6 @@ return [
     'order_correction_write_enabled' => Setting::get('PACKIYO_ORDER_CORRECTION_WRITE_ENABLED', false),
     'order_correction_atomic_confirmed' => Setting::get('PACKIYO_ORDER_CORRECTION_ATOMIC_CONFIRMED', false),
     'order_correction_atomic_method' => Setting::get('PACKIYO_ORDER_CORRECTION_ATOMIC_METHOD', 'PATCH'),
-    'order_correction_atomic_endpoint' => Setting::get('PACKIYO_ORDER_CORRECTION_ATOMIC_ENDPOINT', ''),
+    'order_correction_atomic_endpoint' => Setting::get('PACKIYO_ORDER_CORRECTION_ATOMIC_ENDPOINT', '/orders/{id}'),
     'timeout' => (int) Setting::get('PACKIYO_TIMEOUT', 30),
 ];
