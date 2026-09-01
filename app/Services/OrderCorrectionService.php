@@ -205,6 +205,7 @@ final class OrderCorrectionService
         $lines = $this->assignedLines($jobId, $lineIds);
         $orders = [];
         foreach ($this->groupByOrder($lines) as $orderId => $orderLines) {
+            $orderId = (string) $orderId;
             try {
                 $current = $this->packiyoClient()->getOrder($orderId);
                 $currentItems = self::extractPackiyoLineItems($current);
@@ -245,6 +246,7 @@ final class OrderCorrectionService
         $summary = ['corrected' => 0, 'skipped' => 0, 'failed' => 0];
         $orderCount = 0;
         foreach ($this->groupByOrder($lines) as $orderId => $orderLines) {
+            $orderId = (string) $orderId;
             if (++$orderCount > 10) {
                 break;
             }
