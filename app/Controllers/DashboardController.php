@@ -2786,6 +2786,7 @@ final class DashboardController
                 static fn (array $customer): string => trim((string) ($customer['packiyo_customer_id'] ?? '')),
                 $activeCustomers
             )));
+        $defaultStartDate = date('Y-m-d', strtotime('-60 days'));
         $jobId = (string) ($job['id'] ?? '');
         $writeEnabled = !empty($data['write_enabled']);
         ob_start();
@@ -2801,11 +2802,13 @@ final class DashboardController
                     <div class="notice"><strong>Error:</strong> <?= $this->e($error) ?></div>
                 <?php endif; ?>
                 <form method="post" action="<?= $this->e($this->url('/order-corrections/start')) ?>" class="correction-start-form">
-                    <input type="hidden" name="days" value="60">
                     <div>
-                        <strong>Nuevo analisis: ultimos 60 dias</strong>
-                        <div class="muted">Solo se revisaran ordenes de los clientes activos seleccionados.</div>
+                        <strong>Nuevo analisis</strong>
+                        <div class="muted">Elige desde que fecha revisar las ordenes y los clientes activos incluidos.</div>
                     </div>
+                    <label class="correction-start-date">Fecha de inicio
+                        <input type="date" name="start_date" value="<?= $this->e($defaultStartDate) ?>" max="<?= $this->e(date('Y-m-d')) ?>" required>
+                    </label>
                     <?php if ($activeCustomers === []): ?>
                         <div class="empty">No hay clientes Packiyo activos. Activa o sincroniza clientes antes de iniciar.</div>
                     <?php else: ?>

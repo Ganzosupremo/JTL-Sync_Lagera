@@ -31,8 +31,18 @@ final class OrderCorrectionService
     }
 
     /** @param array<int, string> $customerIds @return array<string, mixed> */
-    public function start(int $days = 60, array $customerIds = [], ?int $userId = null): array
+    public function start(string $startDate, array $customerIds = [], ?int $userId = null): array
     {
+        $start = \DateTimeImmutable::createFromFormat('!Y-m-d', trim($startDate));
+        if ($start === false || $start->format('Y-m-d') !== trim($startDate)) {
+            throw new RuntimeException('Selecciona una fecha de inicio valida.');
+        }
+        $today = new \DateTimeImmutable('today');
+        if ($start > $today) {
+            throw new RuntimeException('La fecha de inicio no puede estar en el futuro.');
+        }
+        $windowStart = $start->format('Y-m-d 00:00:00');
+
         $activeCustomers = $this->customerModel()->listByActive(true);
         $activeIds = array_values(array_filter(array_map(
             static fn (array $customer): string => trim((string) ($customer['packiyo_customer_id'] ?? '')),
@@ -47,7 +57,7 @@ final class OrderCorrectionService
             throw new RuntimeException('La seleccion contiene clientes inactivos o desconocidos. Actualiza la pagina e intentalo de nuevo.');
         }
 
-        $job = $this->store()->createJob($days, $selectedIds, $userId);
+        $job = $this->store()->createJob($windowStart, $selectedIds, $userId);
         return $this->continue((string) $job['id']);
     }
 
