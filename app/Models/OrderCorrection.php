@@ -206,21 +206,31 @@ final class OrderCorrection
         );
     }
 
-    public function assignLine(int $lineId, array $product, string $scope, string $key): void
+    public function assignLine(int $lineId, array $product, string $scope, string $key): bool
     {
+        $current = $this->line($lineId);
+        if ($current === null) {
+            return false;
+        }
         $now = date('Y-m-d H:i:s');
         $selected = 1;
         $result = 'assigned';
+        $id = (string) $product['id'];
+        $sku = (string) $product['sku'];
+        $name = (string) $product['name'];
+        $sameAssignment = (string) ($current['proposed_product_id'] ?? '') === $id
+            && (string) ($current['proposed_sku'] ?? '') === $sku;
+        if ($sameAssignment && in_array((string) ($current['result'] ?? ''), ['corrected', 'already_corrected'], true)) {
+            return false;
+        }
         $statement = $this->connection()->prepare(
             'UPDATE order_correction_lines SET proposed_product_id = ?, proposed_sku = ?, proposed_name = ?,
              assignment_scope = ?, assignment_key = ?, selected = ?, result = ?, error = NULL,
              preview_hash = NULL, previewed_at = NULL, updated_at = ? WHERE id = ?'
         );
-        $id = (string) $product['id'];
-        $sku = (string) $product['sku'];
-        $name = (string) $product['name'];
         $statement->bind_param('sssssissi', $id, $sku, $name, $scope, $key, $selected, $result, $now, $lineId);
         $statement->execute();
+        return $statement->affected_rows > 0;
     }
 
     public function saveGroupAssignment(string $customerId, string $sourceName, array $product): void

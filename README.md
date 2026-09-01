@@ -277,3 +277,5 @@ El flujo funciona en lectura/simulacion por defecto: vuelve a leer Packiyo antes
 La tabla permite seleccionar ordenes editables de forma individual. La previsualizacion seleccionada incluye automaticamente todas las lineas `JTL-LINE-*` de cada orden; despues se pueden corregir solo esas ordenes en Packiyo. La primera escritura queda limitada obligatoriamente a una orden y usa `PATCH /orders/{id}` si no se configuro otro endpoint. Solo cuando la lectura posterior verifica que el reemplazo completo fue correcto se habilitan automaticamente los lotes de hasta diez ordenes. Una ejecucion vacia siempre se rechaza.
 
 Al corregir una orden, si Packiyo no devuelve `shipping_method_id`, el payload conserva `shipping_method_name` cuando existe y usa `Generic` como fallback requerido por la API.
+
+Las lineas con resultado `corrected` o `already_corrected` quedan excluidas de previsualizaciones y ejecuciones posteriores. Volver a elegir el mismo producto no cambia ese estado; asignar un producto destino diferente reinicia la previsualizacion y permite enviar la nueva correccion.

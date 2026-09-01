@@ -189,14 +189,16 @@ final class OrderCorrectionService
                 foreach ($this->store()->lines($jobId, ['customer' => $customerId], 5000) as $candidate) {
                     $candidateName = trim((string) ($candidate['jtl_name'] ?: $candidate['original_name']));
                     if (OrderPreparationService::normalizeName($candidateName) === OrderPreparationService::normalizeName($sourceName)) {
-                        $this->store()->assignLine((int) $candidate['id'], $product, 'group', $key);
-                        $updated++;
+                        if ($this->store()->assignLine((int) $candidate['id'], $product, 'group', $key)) {
+                            $updated++;
+                        }
                     }
                 }
                 continue;
             }
-            $this->store()->assignLine((int) $line['id'], $product, 'line', $key . ':' . $line['packiyo_order_id']);
-            $updated++;
+            if ($this->store()->assignLine((int) $line['id'], $product, 'line', $key . ':' . $line['packiyo_order_id'])) {
+                $updated++;
+            }
         }
         return $updated;
     }
@@ -456,6 +458,11 @@ final class OrderCorrectionService
             }
         }
         return false;
+    }
+
+    public static function isFinalCorrectionResult(string $result): bool
+    {
+        return in_array(strtolower(trim($result)), ['corrected', 'already_corrected'], true);
     }
 
     /** @param array<int, array<string, mixed>> $items */
@@ -726,9 +733,10 @@ final class OrderCorrectionService
         $lines = array_values(array_filter($lines, static fn (array $line): bool =>
             trim((string) ($line['proposed_product_id'] ?? '')) !== ''
             && trim((string) ($line['proposed_sku'] ?? '')) !== ''
+            && !self::isFinalCorrectionResult((string) ($line['result'] ?? ''))
         ));
         if ($lines === []) {
-            throw new RuntimeException('Selecciona lineas con una asignacion confirmada.');
+            throw new RuntimeException('No hay ordenes pendientes en la seleccion. Para reenviar una orden corregida, asigna primero un producto diferente.');
         }
         return $lines;
     }

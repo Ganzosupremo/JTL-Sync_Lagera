@@ -2985,6 +2985,19 @@ final class DashboardController
                             <?php endif; ?>
                         </div>
                     <?php else: ?>
+                        <?php
+                            $orderSelectionStates = [];
+                            foreach ($lines as $candidateLine) {
+                                $candidateOrderId = (string) ($candidateLine['packiyo_order_id'] ?? '');
+                                if ($candidateOrderId === '') { continue; }
+                                $state = $orderSelectionStates[$candidateOrderId] ?? ['editable' => true, 'pending' => false];
+                                $state['editable'] = $state['editable']
+                                    && OrderCorrectionService::isEditableStatus((string) ($candidateLine['packiyo_status'] ?? ''));
+                                $state['pending'] = $state['pending']
+                                    || !OrderCorrectionService::isFinalCorrectionResult((string) ($candidateLine['result'] ?? ''));
+                                $orderSelectionStates[$candidateOrderId] = $state;
+                            }
+                        ?>
                         <form id="correction-selected-orders-form" method="post" action="<?= $this->e($this->url('/order-corrections/preview')) ?>" class="correction-selection-bar" data-correction-selected-form data-correction-max-orders="<?= $this->e($executionLimit) ?>">
                             <input type="hidden" name="job_id" value="<?= $this->e($jobId) ?>">
                             <input type="hidden" name="selection_mode" value="orders">
@@ -3009,8 +3022,11 @@ final class DashboardController
                                         $customerId = (string) ($line['packiyo_customer_id'] ?? '');
                                         $orderId = (string) ($line['packiyo_order_id'] ?? '');
                                         $showOrderCheckbox = $orderId !== '' && !isset($renderedOrderIds[$orderId]);
-                                        $orderSelectable = $showOrderCheckbox
-                                            && OrderCorrectionService::isEditableStatus((string) ($line['packiyo_status'] ?? ''));
+                                        $orderState = $orderSelectionStates[$orderId] ?? ['editable' => false, 'pending' => false];
+                                        $orderSelectable = $showOrderCheckbox && $orderState['editable'] && $orderState['pending'];
+                                        $orderDisabledReason = !$orderState['editable']
+                                            ? 'El estado de esta orden no permite modificarla'
+                                            : 'Esta orden ya fue corregida; cambia el producto asignado para habilitarla nuevamente';
                                         $renderedOrderIds[$orderId] = true;
                                         $catalog = is_array($catalogs[$customerId] ?? null) ? $catalogs[$customerId] : [];
                                         $suggestions = is_array($line['suggestions'] ?? null) ? $line['suggestions'] : [];
@@ -3018,7 +3034,7 @@ final class DashboardController
                                     <tr>
                                         <td>
                                             <?php if ($showOrderCheckbox): ?>
-                                                <input class="order-checkbox" type="checkbox" name="order_ids[]" value="<?= $this->e($orderId) ?>" form="correction-selected-orders-form" data-correction-order-checkbox aria-label="Seleccionar orden <?= $this->e($line['packiyo_order_number'] ?: $orderId) ?>" <?= $orderSelectable ? '' : 'disabled title="El estado de esta orden no permite modificarla"' ?>>
+                                                <input class="order-checkbox" type="checkbox" name="order_ids[]" value="<?= $this->e($orderId) ?>" form="correction-selected-orders-form" data-correction-order-checkbox aria-label="Seleccionar orden <?= $this->e($line['packiyo_order_number'] ?: $orderId) ?>" <?= $orderSelectable ? '' : 'disabled title="' . $this->e($orderDisabledReason) . '"' ?>>
                                             <?php endif; ?>
                                         </td>
                                         <td>
