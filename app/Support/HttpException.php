@@ -12,7 +12,7 @@ final class HttpException extends RuntimeException
         private readonly int $statusCode,
         private readonly string $method,
         private readonly string $url,
-        string $body = ''
+        private readonly string $body = ''
     ) {
         $message = sprintf(
             'HTTP %d from %s %s: %s',
@@ -38,5 +38,10 @@ final class HttpException extends RuntimeException
     public function url(): string
     {
         return $this->url;
+    }
+
+    public function body(): string
+    {
+        return $this->body;
     }
 }

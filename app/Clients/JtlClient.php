@@ -413,7 +413,12 @@ final class JtlClient
     public function isReachabilityException(Throwable $exception): bool
     {
         if ($exception instanceof HttpException) {
-            return in_array($exception->statusCode(), [408, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526], true);
+            if (in_array($exception->statusCode(), [408, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526], true)) {
+                return true;
+            }
+
+            return $exception->statusCode() === 530
+                && preg_match('/(?:error\s*(?:code)?\s*[:#]?\s*1033|cloudflare\s+tunnel|argo\s+tunnel)/i', $exception->body()) === 1;
         }
 
         return preg_match(
@@ -426,6 +431,16 @@ final class JtlClient
     {
         $baseUrl = trim((string) ($this->config['base_url'] ?? ''));
         $target = $baseUrl !== '' ? ' en ' . $baseUrl : '';
+
+        if (
+            $exception instanceof HttpException
+            && $exception->statusCode() === 530
+            && preg_match('/(?:error\s*(?:code)?\s*[:#]?\s*1033|cloudflare\s+tunnel|argo\s+tunnel)/i', $exception->body()) === 1
+        ) {
+            return 'JTL API no esta reachable' . $target
+                . ' porque Cloudflare Tunnel devolvio el error 1033. Revisa que la PC de JTL este encendida, '
+                . 'que el servicio cloudflared este corriendo y que el tunnel aparezca Healthy en Cloudflare.';
+        }
 
         return 'JTL API no esta reachable' . $target
             . '. Revisa que la PC de JTL este encendida, que el servicio/API de JTL y cloudflared esten corriendo, '

@@ -108,6 +108,11 @@ final class SettingsCatalog
                     self::text('PACKIYO_ORDERS_ENDPOINT', 'Orders endpoint', '/orders'),
                     self::text('PACKIYO_ORDER_ENDPOINT', 'Order endpoint', '/orders/{id}'),
                     self::text('PACKIYO_FIND_ORDER_ENDPOINT', 'Find order endpoint', '/orders'),
+                    self::text(
+                        'PACKIYO_FULFILLMENT_INCLUDE',
+                        'Relaciones para fulfillment',
+                        'shipments,shipments.shipment_trackings,shipments.shipping_method,shipments.shipping_method.shipping_carrier'
+                    ),
                     self::text('PACKIYO_CUSTOMERS_ENDPOINT', 'Customers endpoint', '/customers'),
                     self::text('PACKIYO_PRODUCTS_ENDPOINT', 'Products endpoint', '/products'),
                     self::text('PACKIYO_ORDER_CORRECTION_INCLUDE', 'Relaciones para correccion', 'order_items,order_items.product,customer'),

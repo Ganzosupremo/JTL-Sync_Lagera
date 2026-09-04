@@ -9,7 +9,6 @@ use App\Clients\PackiyoClient;
 use App\Models\AppSyncState;
 use App\Models\AutomationOrderSkip;
 use App\Models\AppUser;
-use App\Models\FulfillmentSync;
 use App\Models\JtlApiCredential;
 use App\Models\JtlOrderSource;
 use App\Models\OrderMapping;
@@ -43,7 +42,6 @@ final class DashboardController
         $orderSources = new JtlOrderSource();
         $customerMappings = new PackiyoCustomerMapping();
         $packiyoCustomers = new PackiyoCustomer();
-        $fulfillmentSyncs = new FulfillmentSync();
         $syncStates = new AppSyncState();
         $jtl = new JtlClient(timeout: 10);
         $packiyo = new PackiyoClient();
@@ -192,7 +190,7 @@ final class DashboardController
             $syncStates->get('packiyo_customers'),
             $syncStates->get('fulfillment_sync'),
             $syncStates->get('automation'),
-            $fulfillmentSyncs->recent(500, $fulfillmentCustomerId),
+            $mappings->operationalFulfillmentRows(500, $fulfillmentCustomerId),
             $jtlOrders,
             $jtlOrdersError,
             $jtlWorkerSyncs,
@@ -2223,7 +2221,7 @@ final class DashboardController
                     </div>
 
                     <?php if ($rows === []): ?>
-                        <div class="empty">Todavia no hay tracking enviado a JTL.</div>
+                        <div class="empty">Todavia no hay ordenes mapeadas para revisar.</div>
                     <?php else: ?>
                         <div class="scroll-table order-table-scroll">
                         <table class="sortable-table" data-sort-table="fulfillment">
@@ -2245,7 +2243,12 @@ final class DashboardController
                                             <strong><?= $this->e(($row['jtl_order_number'] ?? '') ?: ($row['jtl_order_id'] ?? '-')) ?></strong>
                                             <div class="muted">ID <?= $this->e($row['jtl_order_id'] ?? '-') ?></div>
                                         </td>
-                                        <td data-sort-value="<?= $this->e($row['packiyo_order_id'] ?? '') ?>"><?= $this->e($row['packiyo_order_id'] ?? '-') ?></td>
+                                        <td data-sort-value="<?= $this->e(($row['packiyo_order_number'] ?? '') ?: ($row['packiyo_order_id'] ?? '')) ?>">
+                                            <strong><?= $this->e(($row['packiyo_order_number'] ?? '') ?: ($row['packiyo_order_id'] ?? '-')) ?></strong>
+                                            <?php if (($row['packiyo_order_number'] ?? '') !== '' && ($row['packiyo_order_id'] ?? '') !== ''): ?>
+                                                <div class="muted">ID <?= $this->e($row['packiyo_order_id']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
                                         <td data-sort-value="<?= $this->e($row['tracking_number'] ?? '') ?>">
                                             <strong><?= $this->e($row['tracking_number'] ?? '-') ?></strong>
                                             <?php if (($row['tracking_url'] ?? '') !== ''): ?>
@@ -2264,16 +2267,31 @@ final class DashboardController
                                                 $fulfillmentStatus = (string) ($row['status'] ?? '');
                                                 $fulfillmentStatusClass = match (true) {
                                                     $fulfillmentStatus === 'synced' || $fulfillmentStatus === 'already_present' => 'synced',
-                                                    $fulfillmentStatus === 'failed' => 'failed',
+                                                    $fulfillmentStatus === 'failed' || $fulfillmentStatus === 'lookup_failed' => 'failed',
                                                     default => 'missing_config',
                                                 };
+                                                $fulfillmentStatusLabel = match ($fulfillmentStatus) {
+                                                    'pending' => 'Pendiente de revision',
+                                                    'waiting_tracking' => 'Esperando tracking',
+                                                    'lookup_failed' => 'Error leyendo Packiyo',
+                                                    'synced' => 'Enviado a JTL',
+                                                    'already_present' => 'Ya presente en JTL',
+                                                    'shipped_pending' => 'Tracking enviado; Shipped pendiente',
+                                                    'failed' => 'Error enviando a JTL',
+                                                    default => $fulfillmentStatus ?: '-',
+                                                };
                                             ?>
-                                            <span class="status <?= $this->e($fulfillmentStatusClass) ?>"><?= $this->e($fulfillmentStatus ?: '-') ?></span>
-                                            <?php if ($fulfillmentStatus === 'failed' && ($row['last_error'] ?? '') !== ''): ?>
+                                            <span class="status <?= $this->e($fulfillmentStatusClass) ?>"><?= $this->e($fulfillmentStatusLabel) ?></span>
+                                            <?php if (($row['last_error'] ?? '') !== ''): ?>
                                                 <div class="muted"><?= $this->e($row['last_error']) ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td data-sort-value="<?= $this->e($row['synced_at'] ?? '') ?>"><?= $this->e($row['synced_at'] ?? '-') ?></td>
+                                        <td data-sort-value="<?= $this->e($row['synced_at'] ?? '') ?>">
+                                            <?= $this->e($row['synced_at'] ?? '-') ?>
+                                            <?php if (($row['fulfillment_last_checked_at'] ?? '') !== ''): ?>
+                                                <div class="muted">Revisado <?= $this->e($row['fulfillment_last_checked_at']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>

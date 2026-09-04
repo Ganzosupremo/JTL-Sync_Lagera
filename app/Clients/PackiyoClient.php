@@ -6,6 +6,8 @@ namespace App\Clients;
 
 use App\Support\Config;
 use App\Support\HttpClient;
+use App\Support\HttpException;
+use Throwable;
 
 final class PackiyoClient
 {
@@ -35,6 +37,13 @@ final class PackiyoClient
     public function getOrder(string $id): array
     {
         return $this->http->get($this->endpoint('order_endpoint', $id));
+    }
+
+    public function getOrderForFulfillment(string $id): array
+    {
+        return $this->http->get($this->endpoint('order_endpoint', $id), [
+            'query' => $this->fulfillmentQuery(),
+        ]);
     }
 
     /** @return array<string, mixed> */
@@ -92,11 +101,33 @@ final class PackiyoClient
         ]);
     }
 
+    public function findOrderForFulfillment(string $externalId): array
+    {
+        return $this->http->get((string) $this->config['find_order_endpoint'], [
+            'query' => array_merge(['filter[external_id]' => $externalId], $this->fulfillmentQuery()),
+        ]);
+    }
+
     public function findOrderByNumber(string $number): array
     {
         return $this->http->get((string) $this->config['find_order_endpoint'], [
             'query' => ['filter[number]' => $number],
         ]);
+    }
+
+    public function findOrderByNumberForFulfillment(string $number): array
+    {
+        return $this->http->get((string) $this->config['find_order_endpoint'], [
+            'query' => array_merge(['filter[number]' => $number], $this->fulfillmentQuery()),
+        ]);
+    }
+
+    /** @return array<string, string> */
+    private function fulfillmentQuery(): array
+    {
+        $include = trim((string) ($this->config['fulfillment_include'] ?? ''));
+
+        return $include === '' ? [] : ['include' => $include];
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -222,6 +253,27 @@ final class PackiyoClient
         }
 
         return ($this->config['api_key'] ?? '') !== '';
+    }
+
+    public function isReachabilityException(Throwable $exception): bool
+    {
+        if ($exception instanceof HttpException) {
+            return in_array($exception->statusCode(), [408, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526], true);
+        }
+
+        return preg_match(
+            '/timed out|failed to connect|could not connect|could not resolve host|connection refused|no route to host|network is unreachable|connection reset|http request failed|ssl.*(connect|timeout)/i',
+            $exception->getMessage()
+        ) === 1;
+    }
+
+    public function friendlyReachabilityMessage(Throwable $exception): string
+    {
+        $baseUrl = trim((string) ($this->config['base_url'] ?? ''));
+
+        return 'Packiyo API no esta reachable'
+            . ($baseUrl !== '' ? ' en ' . $baseUrl : '')
+            . '. Detalle: ' . $exception->getMessage();
     }
 
     /** @return array<string, string> */

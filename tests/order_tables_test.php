@@ -5,6 +5,9 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/app/bootstrap.php';
 
 use App\Controllers\DashboardController;
+use App\Clients\JtlClient;
+use App\Services\FulfillmentSyncService;
+use App\Support\HttpException;
 
 $controller = new DashboardController();
 
@@ -66,6 +69,16 @@ $fulfillmentHtml = (string) $renderFulfillment->invoke(
         'jtl_package_id' => 'package-100',
         'status' => 'synced',
         'synced_at' => '2026-08-25T11:30:00+00:00',
+        'fulfillment_last_checked_at' => '2026-08-25T11:30:00+00:00',
+    ], [
+        'jtl_order_id' => 'jtl-101',
+        'jtl_order_number' => 'JTL-101',
+        'packiyo_order_id' => 'packiyo-101',
+        'packiyo_order_number' => 'C000TEST101',
+        'tracking_number' => null,
+        'status' => 'waiting_tracking',
+        'synced_at' => '2026-08-25T12:30:00+00:00',
+        'fulfillment_last_checked_at' => '2026-08-25T12:30:00+00:00',
     ]],
     ['last_success_at' => '2026-08-25T11:30:00+00:00', 'last_synced_at' => '2026-08-25T11:30:00+00:00', 'last_message' => 'OK'],
     [],
@@ -83,6 +96,9 @@ assertContainsText('data-sort-key="status"', $fulfillmentHtml, 'El estado Fulfil
 assertContainsText('data-sort-key="date" data-sort-type="date"', $fulfillmentHtml, 'La fecha Fulfillment debe ordenarse como fecha.');
 assertContainsText('data-sort-value="2026-08-25T11:30:00+00:00"', $fulfillmentHtml, 'La fecha Fulfillment debe conservar un valor de ordenamiento.');
 assertContainsText('<th scope="col" aria-sort="none"><button class="table-sort"', $fulfillmentHtml, 'Fulfillment debe declarar el estado de ordenamiento en los encabezados.');
+assertContainsText('C000TEST101', $fulfillmentHtml, 'Fulfillment debe mostrar el numero legible de Packiyo.');
+assertContainsText('Esperando tracking', $fulfillmentHtml, 'Fulfillment debe mostrar mappings que aun esperan tracking.');
+assertContainsText('Revisado 2026-08-25T12:30:00+00:00', $fulfillmentHtml, 'Fulfillment debe mostrar el ultimo checkpoint por orden.');
 
 $controllerSource = file_get_contents(dirname(__DIR__) . '/app/Controllers/DashboardController.php');
 assertContainsText("document.querySelectorAll('[data-sort-table]')", (string) $controllerSource, 'El dashboard debe inicializar el ordenamiento local.');
@@ -101,6 +117,9 @@ assertContainsText('Corregir seleccionadas en Packiyo', (string) $controllerSour
 assertContainsText("selected === 0", (string) $controllerSource, 'Una seleccion vacia no debe ejecutar todas las ordenes por accidente.');
 assertContainsText("selected > maxOrders", (string) $controllerSource, 'La interfaz debe respetar el limite del modo de prueba o lote.');
 assertContainsText('Modo prueba: una orden', (string) $controllerSource, 'La primera escritura debe estar limitada a una orden.');
+foreach (['Pendiente de revision', 'Esperando tracking', 'Error leyendo Packiyo', 'Enviado a JTL', 'Ya presente en JTL', 'Tracking enviado; Shipped pendiente', 'Error enviando a JTL'] as $statusLabel) {
+    assertContainsText($statusLabel, (string) $controllerSource, 'Fulfillment debe traducir todos los estados operativos.');
+}
 
 $correctionSource = file_get_contents(dirname(__DIR__) . '/app/Services/OrderCorrectionService.php');
 assertContainsText("'shipping_method_name'", (string) $correctionSource, 'La correccion debe incluir un nombre de metodo de envio cuando Packiyo no devuelve un ID.');
@@ -111,6 +130,53 @@ assertContainsText('Enviar siguiente batch a Packiyo (max. 10)', (string) $contr
 assertContainsText('data-correction-batch-form', (string) $controllerSource, 'El lote debe solicitar confirmacion antes de escribir en Packiyo.');
 assertContainsText('isCancelledLineItem', (string) $correctionSource, 'Las lineas JTL-LINE canceladas deben excluirse del flujo de correccion.');
 assertContainsText('ignored_cancelled', (string) $correctionSource, 'Las lineas canceladas detectadas en trabajos existentes deben quedar marcadas como omitidas.');
+
+$cloudflare = new HttpException(530, 'GET', 'https://jtl.example/deliveryNotes', 'error code: 1033');
+$other530 = new HttpException(530, 'GET', 'https://jtl.example/deliveryNotes', 'unrelated upstream error');
+$jtl = new JtlClient();
+assertSameValue('error code: 1033', $cloudflare->body(), 'HttpException debe conservar el body.');
+assertTrueValue($jtl->isReachabilityException($cloudflare), 'Cloudflare 530/1033 debe ser conectividad.');
+assertTrueValue(!$jtl->isReachabilityException($other530), 'Un HTTP 530 sin evidencia de 1033 no debe reclasificarse.');
+assertContainsText('cloudflared', $jtl->friendlyReachabilityMessage($cloudflare), 'El mensaje 1033 debe indicar revisar cloudflared.');
+
+$service = new FulfillmentSyncService();
+$shipmentResources = new ReflectionMethod(FulfillmentSyncService::class, 'shipmentResources');
+$shipmentResources->setAccessible(true);
+$trackingResources = new ReflectionMethod(FulfillmentSyncService::class, 'trackingResources');
+$trackingResources->setAccessible(true);
+$included = [
+    'shipments:15749' => [
+        'type' => 'shipments',
+        'id' => '15749',
+        'relationships' => ['shipment_trackings' => ['data' => [
+            ['type' => 'shipment_trackings', 'id' => '15838'],
+            ['type' => 'shipment_trackings', 'id' => '15839'],
+        ]]],
+    ],
+    'shipment_trackings:15838' => ['type' => 'shipment_trackings', 'id' => '15838', 'attributes' => ['tracking_number' => 'LF743910246DE']],
+    'shipment_trackings:15839' => ['type' => 'shipment_trackings', 'id' => '15839', 'attributes' => ['tracking_number' => 'SECOND-TRACKING']],
+];
+$order = ['relationships' => ['shipments' => ['data' => [['type' => 'shipments', 'id' => '15749']]]]];
+$shipments = $shipmentResources->invoke($service, $order, $included);
+$trackings = $trackingResources->invoke($service, $shipments[0], $included);
+assertSameValue(1, count($shipments), 'Debe resolver el shipment incluido.');
+assertSameValue(2, count($trackings), 'Debe resolver varios trackings del mismo shipment.');
+assertSameValue('LF743910246DE', $trackings[0]['attributes']['tracking_number'] ?? null, 'Debe conservar el tracking de aceptacion.');
+
+$mappingSource = file_get_contents(dirname(__DIR__) . '/app/Models/OrderMapping.php');
+$syncSource = file_get_contents(dirname(__DIR__) . '/app/Services/FulfillmentSyncService.php');
+$databaseSource = file_get_contents(dirname(__DIR__) . '/app/Support/Database.php');
+$packiyoSource = file_get_contents(dirname(__DIR__) . '/app/Clients/PackiyoClient.php');
+assertContainsText('(fulfillment_last_checked_at IS NULL) DESC', (string) $mappingSource, 'La cola debe priorizar mappings nunca revisados.');
+assertContainsText('CASE WHEN fulfillment_last_checked_at IS NULL THEN synced_at END DESC', (string) $mappingSource, 'Los mappings nuevos deben ir primero.');
+assertContainsText('fulfillment_last_checked_at ASC', (string) $mappingSource, 'La cola debe rotar por el chequeo mas antiguo.');
+assertContainsText('operationalFulfillmentRows', (string) $mappingSource, 'Debe existir la consulta operativa de Fulfillment.');
+assertContainsText('repairPackiyoIdentity', (string) $syncSource, 'El fallback debe reparar el ID Packiyo guardado.');
+assertContainsText('findOrderByNumberForFulfillment', (string) $syncSource, 'El fallback debe buscar por numero Packiyo.');
+assertContainsText("'lookup_failed'", (string) $syncSource, 'Una orden inexistente debe quedar como lookup_failed.');
+assertContainsText("'waiting_tracking'", (string) $syncSource, 'Una orden sin shipments debe quedar esperando tracking.');
+assertContainsText('fulfillment_last_checked_at DATETIME NULL', (string) $databaseSource, 'La migracion debe agregar el checkpoint de cola.');
+assertContainsText('getOrderForFulfillment', (string) $packiyoSource, 'La lectura de fulfillment debe tener un include dedicado.');
 
 echo "order_tables_test: OK\n";
 
@@ -125,5 +191,19 @@ function assertNotContainsText(string $unexpected, string $actual, string $messa
 {
     if (str_contains($actual, $unexpected)) {
         throw new RuntimeException($message . ' Encontrado=' . $unexpected);
+    }
+}
+
+function assertSameValue(mixed $expected, mixed $actual, string $message): void
+{
+    if ($expected !== $actual) {
+        throw new RuntimeException($message . ' Esperado=' . var_export($expected, true) . ' Actual=' . var_export($actual, true));
+    }
+}
+
+function assertTrueValue(bool $condition, string $message): void
+{
+    if (!$condition) {
+        throw new RuntimeException($message);
     }
 }

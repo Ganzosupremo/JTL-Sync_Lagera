@@ -98,6 +98,30 @@ final class OrderMapping
         $statement->execute();
     }
 
+    public function markFulfillmentChecked(string $jtlOrderId, string $status, ?string $lastError = null): void
+    {
+        $checkedAt = date('Y-m-d H:i:s');
+        $statement = $this->connection()->prepare(
+            'UPDATE order_mappings
+             SET fulfillment_status = ?, fulfillment_last_checked_at = ?, fulfillment_last_error = ?
+             WHERE jtl_order_id = ?'
+        );
+        $statement->bind_param('ssss', $status, $checkedAt, $lastError, $jtlOrderId);
+        $statement->execute();
+    }
+
+    public function repairPackiyoIdentity(string $jtlOrderId, string $packiyoOrderId, ?string $packiyoOrderNumber = null): void
+    {
+        $number = trim((string) $packiyoOrderNumber);
+        $statement = $this->connection()->prepare(
+            'UPDATE order_mappings
+             SET packiyo_order_id = ?, packiyo_order_number = COALESCE(NULLIF(?, \'\'), packiyo_order_number)
+             WHERE jtl_order_id = ?'
+        );
+        $statement->bind_param('sss', $packiyoOrderId, $number, $jtlOrderId);
+        $statement->execute();
+    }
+
     /** @param array<string, mixed> $data */
     public function create(array $data): int
     {
@@ -198,7 +222,12 @@ final class OrderMapping
                 'SELECT * FROM order_mappings
                 WHERE packiyo_customer_id = ?
                     AND ' . $notDone . '
-                ORDER BY synced_at ASC, id ASC
+                ORDER BY
+                    (fulfillment_last_checked_at IS NULL) DESC,
+                    CASE WHEN fulfillment_last_checked_at IS NULL THEN synced_at END DESC,
+                    fulfillment_last_checked_at ASC,
+                    synced_at DESC,
+                    id DESC
                 LIMIT ?'
             );
             $statement->bind_param('si', $packiyoCustomerId, $limit);
@@ -210,10 +239,57 @@ final class OrderMapping
         $statement = $this->connection()->prepare(
             'SELECT * FROM order_mappings
             WHERE ' . $notDone . '
-            ORDER BY synced_at ASC, id ASC
+            ORDER BY
+                (fulfillment_last_checked_at IS NULL) DESC,
+                CASE WHEN fulfillment_last_checked_at IS NULL THEN synced_at END DESC,
+                fulfillment_last_checked_at ASC,
+                synced_at DESC,
+                id DESC
             LIMIT ?'
         );
         $statement->bind_param('i', $limit);
+        $statement->execute();
+
+        return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function operationalFulfillmentRows(int $limit = 500, ?string $packiyoCustomerId = null): array
+    {
+        $packiyoCustomerId = trim((string) $packiyoCustomerId);
+        $where = $packiyoCustomerId !== '' ? 'WHERE om.packiyo_customer_id = ?' : '';
+        $sql = 'SELECT
+                    om.jtl_order_id,
+                    om.jtl_order_number,
+                    om.packiyo_order_id,
+                    om.packiyo_order_number,
+                    om.packiyo_customer_id,
+                    om.packiyo_customer_name,
+                    fs.packiyo_shipment_id,
+                    fs.packiyo_tracking_id,
+                    fs.tracking_number,
+                    fs.tracking_url,
+                    fs.carrier,
+                    fs.shipped_at,
+                    fs.jtl_delivery_note_id,
+                    fs.jtl_package_id,
+                    COALESCE(fs.status, om.fulfillment_status, \'pending\') AS status,
+                    COALESCE(fs.last_error, om.fulfillment_last_error) AS last_error,
+                    COALESCE(fs.synced_at, om.fulfillment_last_checked_at, om.synced_at) AS synced_at,
+                    om.fulfillment_last_checked_at
+                FROM order_mappings om
+                LEFT JOIN fulfillment_syncs fs ON fs.jtl_order_id = om.jtl_order_id
+                ' . $where . '
+                ORDER BY COALESCE(fs.synced_at, om.fulfillment_last_checked_at, om.synced_at) DESC, om.id DESC
+                LIMIT ?';
+        $statement = $this->connection()->prepare($sql);
+
+        if ($packiyoCustomerId !== '') {
+            $statement->bind_param('si', $packiyoCustomerId, $limit);
+        } else {
+            $statement->bind_param('i', $limit);
+        }
+
         $statement->execute();
 
         return $statement->get_result()->fetch_all(MYSQLI_ASSOC);

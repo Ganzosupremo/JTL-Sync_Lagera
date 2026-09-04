@@ -16,6 +16,10 @@ return [
     'orders_endpoint' => Setting::get('PACKIYO_ORDERS_ENDPOINT', '/orders'),
     'order_endpoint' => Setting::get('PACKIYO_ORDER_ENDPOINT', '/orders/{id}'),
     'find_order_endpoint' => Setting::get('PACKIYO_FIND_ORDER_ENDPOINT', '/orders'),
+    'fulfillment_include' => Setting::get(
+        'PACKIYO_FULFILLMENT_INCLUDE',
+        'shipments,shipments.shipment_trackings,shipments.shipping_method,shipments.shipping_method.shipping_carrier'
+    ),
     'customers_endpoint' => Setting::get('PACKIYO_CUSTOMERS_ENDPOINT', '/customers'),
     'products_endpoint' => Setting::get('PACKIYO_PRODUCTS_ENDPOINT', '/products'),
     'order_correction_include' => Setting::get('PACKIYO_ORDER_CORRECTION_INCLUDE', 'order_items,order_items.product,customer'),

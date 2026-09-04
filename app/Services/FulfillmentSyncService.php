@@ -30,7 +30,7 @@ final class FulfillmentSyncService
     ) {
     }
 
-    /** @return array{checked: int, fulfilled: int, synced: int, skipped: int, failed: int, packiyo_customer_id: string|null, message: string} */
+    /** @return array<string, mixed> */
     public function sync(int $limit = 200, ?string $packiyoCustomerId = null): array
     {
         $packiyoCustomerId = trim((string) $packiyoCustomerId);
@@ -38,9 +38,13 @@ final class FulfillmentSyncService
         $summary = [
             'checked' => 0,
             'fulfilled' => 0,
+            'tracking_found' => 0,
+            'waiting_tracking' => 0,
             'synced' => 0,
             'skipped' => 0,
             'failed' => 0,
+            'remaining' => 0,
+            'service_unavailable' => false,
             'packiyo_customer_id' => $packiyoCustomerId,
             'message' => '',
         ];
@@ -57,12 +61,15 @@ final class FulfillmentSyncService
             'fulfillment_sync',
             'Fulfillment sync started' . ($packiyoCustomerId !== null ? ' for Packiyo customer ' . $packiyoCustomerId : '') . '.'
         );
-        $jtlUnavailableMessage = null;
+        $unavailableMessage = null;
         $stoppedForTimeBudget = false;
 
-        foreach ($this->orderModel()->pendingFulfillment($limit, $packiyoCustomerId) as $mapping) {
+        $pendingMappings = $this->orderModel()->pendingFulfillment($limit, $packiyoCustomerId);
+
+        foreach ($pendingMappings as $mapping) {
             if ($summary['checked'] > 0 && $this->timeBudgetExceeded()) {
                 $stoppedForTimeBudget = true;
+                $summary['remaining'] = max(0, count($pendingMappings) - $summary['checked']);
                 $this->log()->info(
                     'fulfillment_sync',
                     'Fulfillment sync paused after ' . $budgetSeconds . 's to avoid a request timeout; '
@@ -77,11 +84,16 @@ final class FulfillmentSyncService
                 $shipments = $this->packiyoFulfillments($mapping);
 
                 if ($shipments === []) {
-                    $summary['skipped']++;
+                    $this->orderModel()->markFulfillmentChecked(
+                        (string) $mapping['jtl_order_id'],
+                        'waiting_tracking'
+                    );
+                    $summary['waiting_tracking']++;
                     continue;
                 }
 
                 $summary['fulfilled']++;
+                $summary['tracking_found'] += count($shipments);
 
                 foreach ($shipments as $shipment) {
                     if ($this->fulfillmentModel()->exists((string) $mapping['jtl_order_id'], $shipment['tracking_number'])) {
@@ -124,36 +136,64 @@ final class FulfillmentSyncService
                         $this->saveFailedAttempt($mapping, $shipment, $message);
                     }
                 }
+                $this->orderModel()->markFulfillmentChecked((string) $mapping['jtl_order_id'], 'pending');
             } catch (JtlUnavailableDuringFulfillmentException $exception) {
                 $summary['failed']++;
-                $jtlUnavailableMessage = $exception->getMessage();
-                $this->log()->error('fulfillment_sync', 'Fulfillment sync stopped: ' . $jtlUnavailableMessage);
+                $summary['service_unavailable'] = true;
+                $summary['remaining'] = max(0, count($pendingMappings) - $summary['checked']);
+                $unavailableMessage = $exception->getMessage();
+                $this->log()->error('fulfillment_sync', 'Fulfillment sync stopped: ' . $unavailableMessage);
                 break;
+            } catch (PackiyoOrderNotFoundDuringFulfillmentException $exception) {
+                $summary['failed']++;
+                $this->orderModel()->markFulfillmentChecked(
+                    (string) $mapping['jtl_order_id'],
+                    'lookup_failed',
+                    $exception->getMessage()
+                );
+                $this->log()->error('fulfillment_sync', $exception->getMessage());
             } catch (Throwable $exception) {
                 $summary['failed']++;
+
+                if ($this->packiyoClient()->isReachabilityException($exception)) {
+                    $summary['service_unavailable'] = true;
+                    $summary['remaining'] = max(0, count($pendingMappings) - $summary['checked']);
+                    $unavailableMessage = $this->packiyoClient()->friendlyReachabilityMessage($exception);
+                    $this->log()->error('fulfillment_sync', 'Fulfillment sync stopped: ' . $unavailableMessage);
+                    break;
+                }
+
+                $message = $this->friendlyException($exception);
+                $this->orderModel()->markFulfillmentChecked(
+                    (string) $mapping['jtl_order_id'],
+                    'lookup_failed',
+                    $message
+                );
                 $this->log()->error(
                     'fulfillment_sync',
                     'Unable to sync fulfillment for JTL order '
                     . (string) ($mapping['jtl_order_number'] ?: $mapping['jtl_order_id'])
-                    . ': ' . $this->friendlyException($exception)
+                    . ': ' . $message
                 );
             }
         }
 
-        $summary['message'] = ($jtlUnavailableMessage !== null ? 'Fulfillment sync detenido: ' . $jtlUnavailableMessage . ' ' : '')
+        $summary['message'] = ($unavailableMessage !== null ? 'Fulfillment sync detenido: ' . $unavailableMessage . ' ' : '')
             . sprintf(
-                'Fulfillment sync terminado%s: %d revisadas, %d con tracking, %d enviadas a JTL, %d omitidas, %d errores.',
+                'Fulfillment sync terminado%s: %d revisadas, %d esperando tracking, %d trackings encontrados, %d enviados a JTL, %d omitidos, %d errores.',
                 $packiyoCustomerId !== null ? ' para cliente Packiyo ' . $packiyoCustomerId : '',
                 $summary['checked'],
-                $summary['fulfilled'],
+                $summary['waiting_tracking'],
+                $summary['tracking_found'],
                 $summary['synced'],
                 $summary['skipped'],
                 $summary['failed']
             )
             . ($stoppedForTimeBudget
                 ? sprintf(
-                    ' Se detuvo tras %ds para evitar un timeout; quedan mas ordenes pendientes y se revisaran en la siguiente corrida (cron o un nuevo click).',
-                    $budgetSeconds
+                    ' Se detuvo tras %ds para evitar un timeout; quedan %d ordenes de este lote y se revisaran en la siguiente corrida (cron o un nuevo click).',
+                    $budgetSeconds,
+                    $summary['remaining']
                 )
                 : '');
 
@@ -177,10 +217,6 @@ final class FulfillmentSyncService
     private function packiyoFulfillments(array $mapping): array
     {
         $response = $this->packiyoOrderResponse($mapping);
-
-        if ($response === null) {
-            return [];
-        }
 
         $data = $this->firstPackiyoData($response) ?? [];
         $attributes = $this->arrayValue($data, ['attributes', 'Attributes']);
@@ -226,20 +262,92 @@ final class FulfillmentSyncService
     }
 
     /** @param array<string, mixed> $mapping */
-    private function packiyoOrderResponse(array $mapping): ?array
+    private function packiyoOrderResponse(array $mapping): array
     {
         try {
-            return $this->packiyoClient()->getOrder((string) $mapping['packiyo_order_id']);
+            $response = $this->packiyoClient()->getOrderForFulfillment((string) $mapping['packiyo_order_id']);
+
+            if ($this->firstPackiyoData($response) !== null) {
+                return $response;
+            }
         } catch (HttpException $exception) {
             if ($exception->statusCode() !== 404) {
                 throw $exception;
             }
+        }
 
-            $response = $this->packiyoClient()->findOrder((string) $mapping['jtl_order_id']);
+        $lookups = [];
+        $packiyoNumber = trim((string) ($mapping['packiyo_order_number'] ?? ''));
+
+        if ($packiyoNumber !== '') {
+            $lookups[] = ['type' => 'number', 'value' => $packiyoNumber];
+        }
+
+        foreach ([$packiyoNumber, $mapping['jtl_order_number'] ?? '', $mapping['jtl_order_id'] ?? ''] as $externalId) {
+            $externalId = trim((string) $externalId);
+
+            if ($externalId !== '') {
+                $lookups[] = ['type' => 'external_id', 'value' => $externalId];
+            }
+        }
+
+        $seen = [];
+
+        foreach ($lookups as $lookup) {
+            $key = $lookup['type'] . ':' . $lookup['value'];
+
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            try {
+                $response = $lookup['type'] === 'number'
+                    ? $this->packiyoClient()->findOrderByNumberForFulfillment($lookup['value'])
+                    : $this->packiyoClient()->findOrderForFulfillment($lookup['value']);
+            } catch (HttpException $exception) {
+                if ($exception->statusCode() === 404) {
+                    continue;
+                }
+
+                throw $exception;
+            }
             $order = $this->firstPackiyoData($response);
 
-            return $order === null ? null : $response;
+            if ($order === null) {
+                continue;
+            }
+
+            $recoveredId = $this->stringValue($order, ['id', 'Id']);
+
+            if ($recoveredId === null) {
+                continue;
+            }
+
+            $attributes = $this->arrayValue($order, ['attributes', 'Attributes']);
+            $recoveredNumber = $this->stringValue($attributes, ['number', 'Number']);
+            $this->orderModel()->repairPackiyoIdentity(
+                (string) $mapping['jtl_order_id'],
+                $recoveredId,
+                $recoveredNumber
+            );
+
+            try {
+                return $this->packiyoClient()->getOrderForFulfillment($recoveredId);
+            } catch (HttpException $exception) {
+                if ($exception->statusCode() !== 404) {
+                    throw $exception;
+                }
+
+                return $response;
+            }
         }
+
+        $label = trim((string) ($mapping['jtl_order_number'] ?? '')) ?: (string) $mapping['jtl_order_id'];
+        throw new PackiyoOrderNotFoundDuringFulfillmentException(
+            'No se encontro en Packiyo la orden vinculada a JTL ' . $label
+            . '; se revisaron el ID guardado, el numero Packiyo y los identificadores externos.'
+        );
     }
 
     /**
@@ -813,5 +921,9 @@ final class FulfillmentSyncService
 }
 
 final class JtlUnavailableDuringFulfillmentException extends RuntimeException
+{
+}
+
+final class PackiyoOrderNotFoundDuringFulfillmentException extends RuntimeException
 {
 }

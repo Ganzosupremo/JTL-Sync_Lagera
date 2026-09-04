@@ -42,9 +42,13 @@ final class Database
                 packiyo_order_number VARCHAR(100),
                 packiyo_customer_id VARCHAR(100) NULL,
                 packiyo_customer_name VARCHAR(255) NULL,
+                fulfillment_status VARCHAR(30) NOT NULL DEFAULT 'pending',
+                fulfillment_last_checked_at DATETIME NULL,
+                fulfillment_last_error TEXT NULL,
                 synced_at DATETIME NOT NULL,
                 UNIQUE KEY order_mappings_jtl_order_id_unique (jtl_order_id),
-                KEY order_mappings_packiyo_customer_index (packiyo_customer_id)
+                KEY order_mappings_packiyo_customer_index (packiyo_customer_id),
+                KEY order_mappings_fulfillment_queue_index (fulfillment_last_checked_at, synced_at)
             )"
         );
 
@@ -503,7 +507,7 @@ final class Database
             self::addColumnIfMissing($db, 'jtl_api_credentials', $column, $definition);
         }
 
-        if (!self::indexExists($db, 'jtl_api_credentials_request_unique')) {
+        if (!self::indexExists($db, 'jtl_api_credentials', 'jtl_api_credentials_request_unique')) {
             try {
                 $db->query(
                     'ALTER TABLE jtl_api_credentials
@@ -526,6 +530,22 @@ final class Database
     {
         self::addColumnIfMissing($db, 'order_mappings', 'packiyo_customer_id', 'packiyo_customer_id VARCHAR(100) NULL AFTER packiyo_order_number');
         self::addColumnIfMissing($db, 'order_mappings', 'packiyo_customer_name', 'packiyo_customer_name VARCHAR(255) NULL AFTER packiyo_customer_id');
+        self::addColumnIfMissing($db, 'order_mappings', 'fulfillment_status', "fulfillment_status VARCHAR(30) NOT NULL DEFAULT 'pending' AFTER packiyo_customer_name");
+        self::addColumnIfMissing($db, 'order_mappings', 'fulfillment_last_checked_at', 'fulfillment_last_checked_at DATETIME NULL AFTER fulfillment_status');
+        self::addColumnIfMissing($db, 'order_mappings', 'fulfillment_last_error', 'fulfillment_last_error TEXT NULL AFTER fulfillment_last_checked_at');
+
+        if (!self::indexExists($db, 'order_mappings', 'order_mappings_fulfillment_queue_index')) {
+            try {
+                $db->query(
+                    'ALTER TABLE order_mappings
+                    ADD KEY order_mappings_fulfillment_queue_index (fulfillment_last_checked_at, synced_at)'
+                );
+            } catch (mysqli_sql_exception $exception) {
+                if ((int) $exception->getCode() !== 1061) {
+                    throw $exception;
+                }
+            }
+        }
     }
 
     private static function ensureFulfillmentSyncColumns(mysqli $db): void
@@ -562,14 +582,13 @@ final class Database
         return (bool) $statement->get_result()->fetch_row();
     }
 
-    private static function indexExists(mysqli $db, string $index): bool
+    private static function indexExists(mysqli $db, string $table, string $index): bool
     {
         $statement = $db->prepare(
             'SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?
             LIMIT 1'
         );
-        $table = 'jtl_api_credentials';
         $statement->bind_param('ss', $table, $index);
         $statement->execute();
 
