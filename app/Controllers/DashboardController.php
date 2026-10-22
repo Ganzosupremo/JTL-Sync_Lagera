@@ -30,6 +30,7 @@ use App\Support\Auth;
 use App\Support\Config;
 use App\Support\HttpException;
 use App\Support\JtlScopeList;
+use App\Support\SecretBox;
 use App\Support\Setting;
 use App\Support\SettingsCatalog;
 
@@ -3141,6 +3142,11 @@ final class DashboardController
 
     private function renderSettings(): string
     {
+        if (!(new Auth())->isAdmin()) {
+            return '<section><div class="section-head"><h2>Ajustes</h2></div><div class="section-body">'
+                . '<div class="notice">Solo un administrador puede ver y cambiar los ajustes y los usuarios.</div></div></section>';
+        }
+
         $database = Config::get('database.mysql', []);
         $users = (new AppUser())->all();
         $invitations = (new UserInvitation())->recent(500);
@@ -3211,6 +3217,10 @@ final class DashboardController
                     <form class="invite-form" action="<?= $this->e($this->url('/users/invite')) ?>" method="post">
                         <input name="email" type="email" placeholder="email@empresa.com" required>
                         <input name="ttl_hours" type="number" min="1" max="720" value="<?= $this->e(Setting::get('AUTH_INVITATION_TTL_HOURS', 72)) ?>" aria-label="Horas">
+                        <select name="role" aria-label="Rol">
+                            <option value="<?= $this->e(AppUser::ROLE_ADMIN) ?>">Administrador</option>
+                            <option value="<?= $this->e(AppUser::ROLE_OPERATOR) ?>">Operador (sin ajustes ni usuarios)</option>
+                        </select>
                         <button class="button" type="submit">Crear invitacion</button>
                     </form>
 
@@ -3222,6 +3232,7 @@ final class DashboardController
                                 <tr>
                                     <th>Usuario</th>
                                     <th>Email</th>
+                                    <th>Rol</th>
                                     <th>Estado</th>
                                     <th>Ultimo login</th>
                                     <th>Creado</th>
@@ -3232,6 +3243,7 @@ final class DashboardController
                                     <tr>
                                         <td><strong><?= $this->e($user['username'] ?? '-') ?></strong></td>
                                         <td><?= $this->e($user['email'] ?? '-') ?></td>
+                                        <td><?= ($user['role'] ?? AppUser::ROLE_ADMIN) === AppUser::ROLE_OPERATOR ? 'Operador' : 'Administrador' ?></td>
                                         <td><span class="status <?= ((int) ($user['active'] ?? 0) === 1) ? 'active' : 'inactive' ?>"><?= ((int) ($user['active'] ?? 0) === 1) ? 'active' : 'inactive' ?></span></td>
                                         <td><?= $this->e($user['last_login_at'] ?? '-') ?></td>
                                         <td><?= $this->e($user['created_at'] ?? '-') ?></td>
@@ -4050,6 +4062,19 @@ final class DashboardController
             $warnings[] = 'Login desactivado: cualquiera con la URL puede usar este panel, incluidos los ajustes y las API keys. Activa "Requerir login" en Ajustes.';
         } elseif (!$auth->configured()) {
             $warnings[] = 'Login sin usuarios: el panel esta abierto hasta que crees el primer usuario por invitacion en Ajustes.';
+        }
+
+        try {
+            if (!SecretBox::enabled()) {
+                $warnings[] = 'APP_KEY sin configurar: las API keys y tokens se guardan sin cifrar en MySQL. Genera una clave con "php scripts/generate_app_key.php" y ponla en el .env.';
+            }
+        } catch (\Throwable $exception) {
+            $warnings[] = $exception->getMessage();
+        }
+
+        if (Setting::unreadableSecrets() !== []) {
+            $warnings[] = 'No se pudieron descifrar estos ajustes (APP_KEY distinto al usado al guardarlos): '
+                . implode(', ', Setting::unreadableSecrets()) . '. Vuelve a guardarlos en Ajustes.';
         }
 
         if (!(bool) Config::get('jtl.ssl_verify', false)) {

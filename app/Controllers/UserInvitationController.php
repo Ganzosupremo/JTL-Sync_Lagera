@@ -24,7 +24,8 @@ final class UserInvitationController
         try {
             $email = is_scalar($_POST['email'] ?? null) ? (string) $_POST['email'] : '';
             $ttl = $this->ttlHours(is_scalar($_POST['ttl_hours'] ?? null) ? (string) $_POST['ttl_hours'] : null);
-            $token = (new UserInvitation())->create($email, (new Auth())->currentUserId(), $ttl);
+            $role = is_scalar($_POST['role'] ?? null) ? (string) $_POST['role'] : AppUser::ROLE_ADMIN;
+            $token = (new UserInvitation())->create($email, (new Auth())->currentUserId(), $ttl, $role);
             $link = $this->absoluteUrl('/invite?token=' . rawurlencode($token));
             $this->redirect('/?tab=settings&notice=' . rawurlencode('Invitacion creada: ' . $link));
         } catch (Throwable $exception) {
@@ -92,7 +93,8 @@ final class UserInvitationController
             }
 
             $email = (string) ($invitation['email'] ?? '');
-            $userId = (new AppUser())->create($username, $email, $password);
+            $role = (string) ($invitation['role'] ?? AppUser::ROLE_ADMIN);
+            $userId = (new AppUser())->create($username, $email, $password, $role);
             (new UserInvitation())->accept((int) $invitation['id'], $userId);
 
             $auth = new Auth();

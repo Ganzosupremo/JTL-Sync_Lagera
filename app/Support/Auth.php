@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support;
 
 use App\Models\AppUser;
+use App\Models\LoginAttempt;
 
 final class Auth
 {
@@ -43,9 +44,15 @@ final class Auth
         return ($_SESSION['authenticated'] ?? false) === true;
     }
 
+    /** Too many failed logins for this username/email in the last LoginAttempt::WINDOW_MINUTES. */
+    public function locked(string $username): bool
+    {
+        return $this->attempts()->isLocked($username);
+    }
+
     public function attempt(string $username, string $password): bool
     {
-        if (!$this->enabled() || !$this->configured()) {
+        if (!$this->enabled() || !$this->configured() || $this->locked($username)) {
             return false;
         }
 
@@ -53,10 +60,46 @@ final class Auth
 
         if ($user !== null && password_verify($password, (string) ($user['password_hash'] ?? ''))) {
             $this->authenticatedUser = $user;
+            $this->attempts()->clear($username);
             return true;
         }
 
-        return $this->attemptLegacy($username, $password);
+        if ($this->attemptLegacy($username, $password)) {
+            $this->attempts()->clear($username);
+            return true;
+        }
+
+        $this->attempts()->recordFailure($username);
+
+        return false;
+    }
+
+    /**
+     * Admins can change settings, users and the JTL registration. Without required login
+     * (disabled, or no users yet) everyone is treated as admin, as before roles existed.
+     */
+    public function isAdmin(): bool
+    {
+        if (!$this->required()) {
+            return true;
+        }
+
+        if (($_SESSION['authenticated'] ?? false) !== true) {
+            return false;
+        }
+
+        $id = $this->currentUserId();
+
+        if ($id === null) {
+            // The bootstrap user from .env has no database row and is always an admin.
+            return true;
+        }
+
+        $user = $this->users()->findById($id);
+
+        return $user !== null
+            && (int) ($user['active'] ?? 0) === 1
+            && (string) ($user['role'] ?? AppUser::ROLE_ADMIN) === AppUser::ROLE_ADMIN;
     }
 
     public function login(string $username): void
@@ -102,6 +145,12 @@ final class Auth
 
         if ($hash !== '') {
             return password_verify($password, $hash);
+        }
+
+        // A plain-text AUTH_PASSWORD only works to bootstrap the first user; once real users
+        // exist, the bootstrap login needs AUTH_PASSWORD_HASH.
+        if ($this->users()->hasActiveUsers()) {
+            return false;
         }
 
         $plainPassword = (string) Setting::get('AUTH_PASSWORD', '');
@@ -170,5 +219,10 @@ final class Auth
     private function users(): AppUser
     {
         return new AppUser();
+    }
+
+    private function attempts(): LoginAttempt
+    {
+        return new LoginAttempt();
     }
 }

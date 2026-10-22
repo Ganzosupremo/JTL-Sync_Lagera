@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Models\LoginAttempt;
 use App\Support\Auth;
 
 final class AuthController
@@ -59,6 +60,15 @@ final class AuthController
         if (!$auth->configured()) {
             header('Content-Type: text/html; charset=UTF-8');
             echo $this->renderLogin('Autenticacion no configurada. Crea un usuario por invitacion o define el usuario bootstrap en .env.', $redirect);
+            return;
+        }
+
+        if ($auth->locked($username)) {
+            header('Content-Type: text/html; charset=UTF-8');
+            echo $this->renderLogin(
+                'Demasiados intentos fallidos para este usuario. Espera ' . LoginAttempt::WINDOW_MINUTES . ' minutos e intentalo de nuevo.',
+                $redirect
+            );
             return;
         }
 

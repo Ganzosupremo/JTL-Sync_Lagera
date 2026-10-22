@@ -241,7 +241,23 @@ Flujo recomendado:
 
 No hay endpoint de registro abierto. El endpoint `/invite` solo funciona con un token valido, no expirado y no revocado.
 
-Como fallback/bootstrap, puedes definir `AUTH_USERNAME` y `AUTH_PASSWORD_HASH` manualmente en `.env`, pero el uso normal debe ser invitaciones en MySQL.
+Como fallback/bootstrap, puedes definir `AUTH_USERNAME` y `AUTH_PASSWORD_HASH` manualmente en `.env`, pero el uso normal debe ser invitaciones en MySQL. Un `AUTH_PASSWORD` en texto plano solo sirve mientras no exista ningun usuario en MySQL.
+
+Roles: cada invitacion elige `Administrador` u `Operador`. Los operadores pueden sincronizar y corregir ordenes, pero no cambiar Ajustes, invitar o revocar usuarios, registrar la app en JTL ni ejecutar correcciones en Packiyo. Los usuarios creados antes de existir los roles quedan como administradores.
+
+Tras 5 intentos fallidos en 15 minutos, ese usuario/email queda bloqueado 15 minutos. El limite es por usuario y no por IP, porque detras del tunnel de Cloudflare todas las peticiones llegan desde la misma IP.
+
+Si ocurre un error inesperado, el navegador solo ve una referencia corta; el detalle queda en la pestana Logs con esa referencia. Con `APP_DEBUG=true` se muestra el mensaje completo.
+
+### Cifrado de secretos
+
+Con `APP_KEY` definido, las API keys y tokens (`PACKIYO_API_KEY`, `AUTOMATION_TOKEN`, `JTL_CF_ACCESS_CLIENT_SECRET`, `JTL_CHALLENGE_CODE` y el token de JTL en `jtl_api_credentials`) se guardan cifrados en MySQL con libsodium. Los valores antiguos en texto plano se cifran solos la primera vez que la app los lee.
+
+```bash
+php scripts/generate_app_key.php   # imprime una clave base64:..., que va en APP_KEY
+```
+
+Pon la clave en `.env` (o en los secretos del hosting) y guarda una copia segura: si se pierde o cambia, los secretos cifrados no se pueden leer y hay que volver a guardarlos en Ajustes. El dashboard avisa si falta `APP_KEY` o si algun secreto no se puede descifrar.
 
 Los endpoints `/automation/tick` y `/automation/run` no usan la sesion del navegador; siguen protegidos por `AUTOMATION_TOKEN` para que el cron del hosting pueda ejecutarlos.
 

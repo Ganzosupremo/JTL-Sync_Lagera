@@ -12,6 +12,12 @@ final class Setting
     /** @var array<string, string>|null */
     private static ?array $settings = null;
 
+    /** Settings stored outside the catalog that are secrets too. */
+    private const EXTRA_SECRET_KEYS = ['JTL_API_KEY', 'JTL_PASSWORD', 'AUTH_PASSWORD'];
+
+    /** @var array<int, string> Secret settings that exist but could not be decrypted. */
+    private static array $unreadableSecrets = [];
+
     public static function get(string $key, mixed $default = null): mixed
     {
         $settings = self::settings();
@@ -33,7 +39,13 @@ final class Setting
     /** @param array<string, string> $updates */
     public static function putMany(array $updates): void
     {
-        (new AppSetting())->upsertMany($updates);
+        $stored = [];
+
+        foreach ($updates as $key => $value) {
+            $stored[$key] = self::isSecret($key) ? SecretBox::encrypt($value) : $value;
+        }
+
+        (new AppSetting())->upsertMany($stored);
 
         if (self::$settings !== null) {
             foreach ($updates as $key => $value) {
@@ -50,12 +62,56 @@ final class Setting
         }
 
         try {
-            self::$settings = (new AppSetting())->all();
+            $stored = (new AppSetting())->all();
         } catch (Throwable) {
-            self::$settings = [];
+            return self::$settings = [];
+        }
+
+        self::$settings = [];
+        self::$unreadableSecrets = [];
+
+        foreach ($stored as $key => $value) {
+            try {
+                self::$settings[$key] = SecretBox::decrypt($value);
+            } catch (Throwable) {
+                self::$unreadableSecrets[] = $key;
+                continue;
+            }
+
+            if (self::isSecret($key) && $value !== '' && !SecretBox::isEncrypted($value)) {
+                self::encryptStored($key, $value);
+            }
         }
 
         return self::$settings;
+    }
+
+    public static function isSecret(string $key): bool
+    {
+        static $catalog = null;
+        $catalog ??= SettingsCatalog::fieldsByKey();
+
+        return in_array($key, self::EXTRA_SECRET_KEYS, true) || !empty($catalog[$key]['secret']);
+    }
+
+    /** @return array<int, string> */
+    public static function unreadableSecrets(): array
+    {
+        self::settings();
+
+        return self::$unreadableSecrets;
+    }
+
+    /** Secrets saved before APP_KEY existed are encrypted in place the first time they are read with a key. */
+    private static function encryptStored(string $key, string $plain): void
+    {
+        try {
+            if (SecretBox::enabled()) {
+                (new AppSetting())->upsert($key, SecretBox::encrypt($plain));
+            }
+        } catch (Throwable) {
+            // Reading the setting must keep working even if the re-encryption can't be written.
+        }
     }
 
     private static function normalize(string $value): mixed

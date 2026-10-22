@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Support\Database;
+use App\Support\SecretBox;
 use mysqli;
 
 final class JtlApiCredential
@@ -21,7 +22,7 @@ final class JtlApiCredential
         );
         $row = $result->fetch_assoc();
 
-        return is_array($row) ? $row : null;
+        return is_array($row) ? $this->withReadableApiKey($row) : null;
     }
 
     /** @return array<string, mixed>|null */
@@ -37,7 +38,7 @@ final class JtlApiCredential
         $statement->execute();
         $row = $statement->get_result()->fetch_assoc();
 
-        return is_array($row) ? $row : null;
+        return is_array($row) ? $this->withReadableApiKey($row) : null;
     }
 
     public function cancelLatestPending(): bool
@@ -66,7 +67,7 @@ final class JtlApiCredential
     public function currentApiKey(): ?string
     {
         $statement = $this->connection()->prepare(
-            "SELECT api_key FROM jtl_api_credentials
+            "SELECT id, api_key FROM jtl_api_credentials
             WHERE status = 'approved'
             AND api_key IS NOT NULL
             AND api_key <> ''
@@ -76,9 +77,53 @@ final class JtlApiCredential
         );
         $statement->execute();
         $row = $statement->get_result()->fetch_assoc();
-        $apiKey = $row['api_key'] ?? null;
+
+        if (!is_array($row)) {
+            return null;
+        }
+
+        $stored = (string) ($row['api_key'] ?? '');
+        $apiKey = $this->withReadableApiKey($row)['api_key'] ?? null;
+
+        if ($this->hasUsableApiKey(['api_key' => $apiKey]) && !SecretBox::isEncrypted($stored)) {
+            $this->encryptStoredApiKey((int) $row['id'], (string) $apiKey);
+        }
 
         return $this->hasUsableApiKey(['api_key' => $apiKey]) ? (string) $apiKey : null;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function withReadableApiKey(array $row): array
+    {
+        if (is_string($row['api_key'] ?? null)) {
+            try {
+                $row['api_key'] = SecretBox::decrypt($row['api_key']);
+            } catch (\Throwable) {
+                $row['api_key'] = null;
+            }
+        }
+
+        return $row;
+    }
+
+    /** Tokens saved before APP_KEY existed are encrypted in place the first time they are used with a key. */
+    private function encryptStoredApiKey(int $id, string $apiKey): void
+    {
+        try {
+            if (!SecretBox::enabled()) {
+                return;
+            }
+
+            $encrypted = SecretBox::encrypt($apiKey);
+            $statement = $this->connection()->prepare('UPDATE jtl_api_credentials SET api_key = ? WHERE id = ?');
+            $statement->bind_param('si', $encrypted, $id);
+            $statement->execute();
+        } catch (\Throwable) {
+            // Using the token must keep working even if the re-encryption can't be written.
+        }
     }
 
     public function createPending(
@@ -118,6 +163,7 @@ final class JtlApiCredential
     /** @param array<int, string> $grantedScopes */
     public function markApproved(string $registrationRequestId, string $apiKey, array $grantedScopes): void
     {
+        $apiKey = SecretBox::encrypt($apiKey);
         $now = date('Y-m-d H:i:s');
         $status = 'approved';
         $scopes = json_encode(array_values($grantedScopes), JSON_THROW_ON_ERROR);
