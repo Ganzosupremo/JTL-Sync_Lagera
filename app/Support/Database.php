@@ -436,6 +436,19 @@ final class Database
                 CONSTRAINT order_correction_attempts_job_fk FOREIGN KEY (job_id) REFERENCES order_correction_jobs(id) ON DELETE CASCADE
             )"
         );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS order_sync_failures (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                jtl_order_id VARCHAR(100) NOT NULL,
+                jtl_order_number VARCHAR(100) NULL,
+                last_error TEXT NOT NULL,
+                failure_count INT NOT NULL DEFAULT 1,
+                first_failed_at DATETIME NOT NULL,
+                last_failed_at DATETIME NOT NULL,
+                UNIQUE KEY order_sync_failures_jtl_order_unique (jtl_order_id)
+            )"
+        );
     }
 
     private static function mysqlConnection(): mysqli

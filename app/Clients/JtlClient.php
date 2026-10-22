@@ -8,11 +8,15 @@ use App\Models\JtlApiCredential;
 use App\Support\Config;
 use App\Support\HttpClient;
 use App\Support\HttpException;
+use App\Support\Logger;
 use RuntimeException;
 use Throwable;
 
 final class JtlClient
 {
+    /** JTL's default page size; set explicitly so paging is predictable. */
+    private const ORDERS_PAGE_SIZE = 100;
+
     public const WORKER_CONTROL_CLIENT_VERSION = 'worker-v1-canonical-only-20260705';
 
     /**
@@ -42,11 +46,57 @@ final class JtlClient
     /** @return array<int, array<string, mixed>> */
     public function getOrders(): array
     {
-        $response = $this->http->get((string) $this->config['orders_endpoint'], [
-            'query' => $this->config['new_orders_query'] ?? [],
-        ]);
+        $query = is_array($this->config['new_orders_query'] ?? null) ? $this->config['new_orders_query'] : [];
+        $query['pageSize'] ??= self::ORDERS_PAGE_SIZE;
+        $page = max(1, (int) ($query['pageNumber'] ?? 1));
+        $maxPages = max(1, (int) ($this->config['orders_max_pages'] ?? 20));
+        $orders = [];
 
-        return $this->collection($response);
+        for ($fetched = 0; $fetched < $maxPages; $fetched++) {
+            $query['pageNumber'] = $page;
+            $response = $this->http->get((string) $this->config['orders_endpoint'], ['query' => $query]);
+            array_push($orders, ...$this->collection($response));
+            $nextPage = $this->nextPageNumber($response, $page);
+
+            if ($nextPage === null) {
+                return $orders;
+            }
+
+            $page = $nextPage;
+        }
+
+        (new Logger())->warning(
+            'jtl',
+            'JTL orders: stopped after ' . $maxPages . ' pages (' . count($orders) . ' orders) although more pages exist. '
+            . 'Narrow JTL_NEW_ORDERS_QUERY or raise JTL_ORDERS_MAX_PAGES.'
+        );
+
+        return $orders;
+    }
+
+    /**
+     * Next page of a JTL paged result (camelCase or PascalCase fields). A response without
+     * paging fields counts as the only page.
+     *
+     * @param array<string, mixed> $response
+     */
+    private function nextPageNumber(array $response, int $currentPage): ?int
+    {
+        $hasNext = $response['hasNextPage'] ?? $response['HasNextPage'] ?? null;
+
+        if ($hasNext !== null) {
+            if ($hasNext !== true) {
+                return null;
+            }
+
+            $next = (int) ($response['nextPageNumber'] ?? $response['NextPageNumber'] ?? 0);
+
+            return $next > $currentPage ? $next : $currentPage + 1;
+        }
+
+        $totalPages = (int) ($response['totalPages'] ?? $response['TotalPages'] ?? 0);
+
+        return $totalPages > $currentPage ? $currentPage + 1 : null;
     }
 
     /** @return array<int, array<string, mixed>> */

@@ -7,9 +7,12 @@ require __DIR__ . '/support/bootstrap.php';
 use App\Clients\JtlClient;
 use App\Clients\PackiyoClient;
 use App\Models\OrderMapping;
+use App\Models\OrderSyncFailure;
 use App\Models\PackiyoCustomerMapping;
 use App\Services\OrderSyncService;
+use App\Support\Config;
 use App\Support\HttpException;
+use App\Support\SyncLock;
 
 requireTestDatabase();
 useSettings([
@@ -102,6 +105,23 @@ $summary = syncService([jtlOrder('4')], $packiyo)->sync();
 assertSame(1, $summary['failed'], 'Un error de Packiyo debe contarse como fallido.');
 assertSame(null, $mappings->findByJtlOrderId('4'), 'Una orden fallida no debe quedar mapeada.');
 
+$failures = new OrderSyncFailure();
+$failure = $failures->findByJtlOrderIds(['4'])['4'] ?? null;
+assertTrue($failure !== null, 'Una orden fallida debe quedar registrada para mostrarse en el dashboard.');
+assertContains('HTTP 500', (string) $failure['last_error'], 'El registro debe guardar el error real.');
+
+syncService([jtlOrder('4')], $packiyo)->sync();
+assertSame(2, (int) ($failures->findByJtlOrderIds(['4'])['4']['failure_count'] ?? 0), 'Cada reintento fallido debe sumar al contador.');
+
+// 5b. Once the order syncs, its failure record disappears.
+$packiyo = (new FakeHttpClient())
+    ->on('GET', '/orders', $notFound)
+    ->on('POST', '/orders', ['data' => ['type' => 'orders', 'id' => 'pk-4']]);
+$summary = syncService([jtlOrder('4')], $packiyo)->sync();
+
+assertSame(1, $summary['created'], 'La orden debe crearse en el reintento.');
+assertSame([], $failures->findByJtlOrderIds(['4']), 'Una orden sincronizada no debe seguir marcada como fallida.');
+
 // 6. Orders without a Packiyo customer mapping are skipped before any API call.
 $unmapped = jtlOrder('5');
 $unmapped['customer'] = ['email' => 'nobody@example.com'];
@@ -117,5 +137,51 @@ $summary = (new OrderSyncService(new JtlClient($jtlHttp), new PackiyoClient(new 
 
 assertSame(true, $summary['jtl_unreachable'], 'Un 530/1033 de Cloudflare debe marcar JTL como inaccesible.');
 assertSame(1, $summary['failed'], 'JTL inaccesible debe contarse como fallo.');
+
+// 8. While another process holds the sync lock, nothing is read or sent.
+$otherProcess = new mysqli(
+    (string) Config::get('database.mysql.host'),
+    (string) Config::get('database.mysql.username'),
+    (string) Config::get('database.mysql.password'),
+    (string) Config::get('database.mysql.database'),
+    (int) Config::get('database.mysql.port')
+);
+$otherLock = new SyncLock($otherProcess);
+assertTrue($otherLock->acquire('order_sync', 0), 'El otro proceso debe poder tomar el lock.');
+
+$jtlHttp = (new FakeHttpClient())->on('GET', '/salesOrders', ['Data' => [jtlOrder('6')]]);
+$packiyo = new FakeHttpClient();
+$summary = (new OrderSyncService(new JtlClient($jtlHttp), new PackiyoClient($packiyo)))->sync();
+
+assertSame(true, $summary['locked'], 'Con otra sync en curso la corrida debe omitirse.');
+assertSame(0, $summary['failed'], 'Una corrida omitida por el lock no es un fallo.');
+assertSame([], $jtlHttp->requests, 'Con el lock tomado no debe leerse JTL.');
+assertSame([], $packiyo->requests, 'Con el lock tomado no debe tocarse Packiyo.');
+
+$otherLock->release('order_sync');
+$summary = syncService([jtlOrder('6')], (new FakeHttpClient())
+    ->on('GET', '/orders', $notFound)
+    ->on('POST', '/orders', ['data' => ['type' => 'orders', 'id' => 'pk-6']]))->sync();
+assertSame(1, $summary['created'], 'Liberado el lock, la sync debe correr normalmente.');
+
+// 9. A forced resync replaces the mapping in one transaction: if saving fails, the old one survives.
+$tooLongId = str_repeat('x', 150); // order_mappings.packiyo_order_id is VARCHAR(100)
+$packiyo = (new FakeHttpClient())
+    ->on('GET', '/orders', $notFound)
+    ->on('POST', '/orders', ['data' => ['type' => 'orders', 'id' => $tooLongId]]);
+$jtlHttp = (new FakeHttpClient())->on('GET', '/salesOrders', ['Data' => [jtlOrder('6')]]);
+$summary = (new OrderSyncService(new JtlClient($jtlHttp), new PackiyoClient($packiyo)))->syncOne('6', true);
+
+assertSame(1, $summary['failed'], 'Un error al guardar el mapping debe contarse como fallido.');
+assertSame('pk-6', $mappings->findByJtlOrderId('6')['packiyo_order_id'] ?? null, 'Si el guardado falla, el mapping anterior debe conservarse.');
+
+$packiyo = (new FakeHttpClient())
+    ->on('GET', '/orders', $notFound)
+    ->on('POST', '/orders', ['data' => ['type' => 'orders', 'id' => 'pk-6b']]);
+$jtlHttp = (new FakeHttpClient())->on('GET', '/salesOrders', ['Data' => [jtlOrder('6')]]);
+$summary = (new OrderSyncService(new JtlClient($jtlHttp), new PackiyoClient($packiyo)))->syncOne('6', true);
+
+assertSame(1, $summary['created'], 'El resync forzado debe crear la orden de nuevo.');
+assertSame('pk-6b', $mappings->findByJtlOrderId('6')['packiyo_order_id'] ?? null, 'El resync forzado debe reemplazar el mapping.');
 
 echo "order_sync_test: OK\n";

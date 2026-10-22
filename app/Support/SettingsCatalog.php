@@ -57,6 +57,8 @@ final class SettingsCatalog
                     self::boolean('JTL_SSL_VERIFY', 'Verificar SSL', false),
                     self::text('JTL_API_VERSION', 'API version', '1.0'),
                     self::text('JTL_NEW_ORDERS_QUERY', 'Filtro de ordenes nuevas', 'status=new'),
+                    self::number('JTL_ORDERS_MAX_PAGES', 'Maximo de paginas de ordenes por lectura', '20'),
+                    self::number('JTL_ORDERS_MAX_AGE_DAYS', 'Ignorar en el sync ordenes con mas de N dias (0 = sin limite)', '30'),
                     self::number('JTL_TIMEOUT', 'Timeout', '30'),
                     self::text('JTL_ORDERS_ENDPOINT', 'Orders endpoint', '/api/eazybusiness/salesOrders'),
                     self::text('JTL_ORDER_ENDPOINT', 'Order endpoint', '/api/eazybusiness/salesOrders/{id}'),
