@@ -6,7 +6,7 @@ namespace App\Support;
 
 use RuntimeException;
 
-final class HttpClient
+class HttpClient
 {
     /** @param array<string, string> $defaultHeaders */
     public function __construct(

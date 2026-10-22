@@ -285,3 +285,18 @@ Las lineas con resultado `corrected` o `already_corrected` quedan excluidas de p
 Una linea `JTL-LINE-*` cancelada en Packiyo se omite porque indica que la orden ya fue corregida manualmente agregando el producto correcto. La deteccion reconoce el estado o indicador de cancelacion, la cantidad cancelada y las lineas cuya cantidad quedo en cero. Los analisis nuevos no la guardan y los trabajos existentes la marcan como `ignored_cancelled` al volver a leer la orden, antes de cualquier escritura.
 
 Despues de verificar correctamente la primera orden, el boton `Enviar siguiente batch a Packiyo (max. 10)` procesa las siguientes diez ordenes asignadas y previsualizadas. Antes de agrupar el lote excluye `corrected`, `already_corrected` e `ignored_cancelled`; tambien vuelve a leer cada orden y omite cualquier linea provisional cancelada recientemente.
+
+## Tests
+
+Los tests no necesitan Composer. Cada archivo `tests/*_test.php` corre en su propio proceso PHP:
+
+```bash
+php tests/run.php            # todos
+php tests/run.php order_sync # solo los que contienen "order_sync"
+```
+
+Los tests que usan base de datos necesitan un MySQL local y una base cuyo nombre termine en `_test` (por defecto `jtlsync_test`, se crea sola). Nunca leen el `.env` de la app; las credenciales se pasan por variables de entorno (`DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`) o en `tests/.env.testing`. Cada test vacia todas las tablas de esa base antes de empezar. Sin MySQL, esos tests se marcan como `SKIP`; con `TESTS_REQUIRE_DB=1` (como en CI) fallan.
+
+Las llamadas a JTL y Packiyo se simulan con `tests/support/FakeHttpClient.php`, que responde desde rutas registradas y falla ante cualquier peticion inesperada.
+
+GitHub Actions (`.github/workflows/ci.yml`) ejecuta `php -l` y todos los tests contra MySQL 8 en cada pull request y en cada push a `main`.
