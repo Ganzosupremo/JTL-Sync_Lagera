@@ -12,7 +12,7 @@ final class AuthController
     {
         $auth = new Auth();
 
-        if (!$auth->enabled()) {
+        if (!$auth->required()) {
             $this->redirect('/');
         }
 
@@ -42,7 +42,7 @@ final class AuthController
     {
         $auth = new Auth();
 
-        if (!$auth->enabled() || $auth->check()) {
+        if ($auth->check()) {
             return;
         }
 

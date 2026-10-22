@@ -297,6 +297,7 @@ final class DashboardController
             $automationEnabled
         );
         $automationLastSummary = $this->automationLastSummary($automationState);
+        $auth = new Auth();
         ob_start();
         ?>
 <!doctype html>
@@ -441,6 +442,12 @@ final class DashboardController
         .order-checkbox {
             height: 18px;
             width: 18px;
+        }
+
+        .notice.security-warning {
+            background: #fff1f0;
+            border-color: #fecdca;
+            color: #b42318;
         }
 
         .notice {
@@ -1086,7 +1093,7 @@ final class DashboardController
                 <form action="<?= $this->e($this->url('/automation/manual')) ?>" method="post">
                     <button class="button" type="submit">Sincronizar ahora</button>
                 </form>
-                <?php if ((new Auth())->enabled()): ?>
+                <?php if ($auth->required()): ?>
                     <form action="<?= $this->e($this->url('/logout')) ?>" method="post">
                         <button class="button secondary" type="submit">Cerrar sesion</button>
                     </form>
@@ -1097,6 +1104,10 @@ final class DashboardController
         <?php if (is_string($notice) && $notice !== ''): ?>
             <div class="notice"><?= $this->e($notice) ?></div>
         <?php endif; ?>
+
+        <?php foreach ($this->securityWarnings($auth) as $warning): ?>
+            <div class="notice security-warning"><?= $this->e($warning) ?></div>
+        <?php endforeach; ?>
 
         <div class="summary">
             <div class="metric">
@@ -4018,6 +4029,24 @@ final class DashboardController
         $host = is_string($_SERVER['HTTP_HOST'] ?? null) ? $_SERVER['HTTP_HOST'] : 'localhost';
 
         return $scheme . '://' . $host . $this->url('/automation/tick');
+    }
+
+    /** @return array<int, string> */
+    private function securityWarnings(Auth $auth): array
+    {
+        $warnings = [];
+
+        if (!$auth->enabled()) {
+            $warnings[] = 'Login desactivado: cualquiera con la URL puede usar este panel, incluidos los ajustes y las API keys. Activa "Requerir login" en Ajustes.';
+        } elseif (!$auth->configured()) {
+            $warnings[] = 'Login sin usuarios: el panel esta abierto hasta que crees el primer usuario por invitacion en Ajustes.';
+        }
+
+        if (!(bool) Config::get('jtl.ssl_verify', false)) {
+            $warnings[] = 'Verificacion SSL hacia JTL desactivada: activa "Verificar SSL" en Ajustes si JTL usa un certificado valido (por ejemplo, a traves del tunnel de Cloudflare).';
+        }
+
+        return $warnings;
     }
 
     private function e(mixed $value): string

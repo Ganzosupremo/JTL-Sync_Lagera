@@ -85,7 +85,7 @@ final class SettingsController
     /** @param array<string, string> $updates */
     private function authWillBeConfigured(array $updates): bool
     {
-        $authEnabled = $updates['AUTH_ENABLED'] ?? ((bool) Setting::get('AUTH_ENABLED', false) ? 'true' : 'false');
+        $authEnabled = $updates['AUTH_ENABLED'] ?? ((bool) Setting::get('AUTH_ENABLED', true) ? 'true' : 'false');
 
         if ($authEnabled !== 'true') {
             return true;

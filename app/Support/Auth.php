@@ -18,7 +18,13 @@ final class Auth
 
     public function enabled(): bool
     {
-        return (bool) Setting::get('AUTH_ENABLED', false);
+        return (bool) Setting::get('AUTH_ENABLED', true);
+    }
+
+    /** Login is switched on and there is at least one user who can log in. */
+    public function required(): bool
+    {
+        return $this->enabled() && $this->configured();
     }
 
     public function configured(): bool
@@ -28,7 +34,9 @@ final class Auth
 
     public function check(): bool
     {
-        if (!$this->enabled()) {
+        // With no users yet the panel stays open (setup mode, flagged in the dashboard) so the
+        // first user can be invited instead of locking everyone out.
+        if (!$this->enabled() || !$this->configured()) {
             return true;
         }
 

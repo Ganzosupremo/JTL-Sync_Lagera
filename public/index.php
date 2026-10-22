@@ -21,6 +21,8 @@ use App\Controllers\ProductSkuAliasController;
 use App\Controllers\SettingsController;
 use App\Controllers\SyncController;
 use App\Controllers\UserInvitationController;
+use App\Support\Auth;
+use App\Support\Csrf;
 use App\Support\Database;
 
 require dirname(__DIR__) . '/app/bootstrap.php';
@@ -46,6 +48,23 @@ if (is_string($queryString) && $queryString !== '') {
 if (!in_array($path, $publicPaths, true)) {
     (new AuthController())->requireLogin($loginTarget);
 }
+
+// The cron endpoints authenticate with AUTOMATION_TOKEN instead of a browser session.
+$csrfExemptPaths = ['/automation/run', '/automation/tick'];
+new Auth(); // Starts the session that holds the CSRF token.
+
+if (
+    ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST'
+    && !in_array($path, $csrfExemptPaths, true)
+    && !Csrf::valid(Csrf::fromRequest())
+) {
+    http_response_code(403);
+    header('Content-Type: text/html; charset=UTF-8');
+    echo 'La sesion expiro o el formulario no es valido. <a href="javascript:history.back()">Vuelve</a>, recarga la pagina e intentalo de nuevo.';
+    exit;
+}
+
+ob_start(static fn (string $output): string => Csrf::isHtmlResponse(headers_list()) ? Csrf::injectIntoForms($output) : $output);
 
 try {
     match ($path) {
