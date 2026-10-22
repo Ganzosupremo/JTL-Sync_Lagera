@@ -30,7 +30,7 @@ final class SettingsCatalog
                 'title' => 'Autenticacion',
                 'description' => 'Protege el dashboard y las acciones manuales con usuario y password.',
                 'fields' => [
-                    self::boolean('AUTH_ENABLED', 'Requerir login', false),
+                    self::boolean('AUTH_ENABLED', 'Requerir login', true),
                     self::text('AUTH_SESSION_NAME', 'Nombre de sesion', 'jtlsync_session'),
                     self::number('AUTH_INVITATION_TTL_HOURS', 'Horas de validez de invitaciones', '72'),
                 ],
@@ -40,6 +40,7 @@ final class SettingsCatalog
                 'description' => 'Controla el cron que jala ordenes, envia a Packiyo y devuelve tracking a JTL.',
                 'fields' => [
                     self::secret('AUTOMATION_TOKEN', 'Token del cron HTTP', ''),
+                    self::boolean('AUTOMATION_ALLOW_QUERY_TOKEN', 'Aceptar token en la URL (?token=, inseguro)', false),
                     self::boolean('AUTOMATION_ENABLED', 'Automatizacion activa', true),
                     self::number('AUTOMATION_INTERVAL_MINUTES', 'Intervalo automatico en minutos', '360'),
                     self::boolean('AUTOMATION_SYNC_CUSTOMERS', 'Actualizar clientes en cada corrida', false),

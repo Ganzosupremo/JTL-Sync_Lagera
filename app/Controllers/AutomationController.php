@@ -68,7 +68,12 @@ final class AutomationController
             return false;
         }
 
-        $provided = $_SERVER['HTTP_X_AUTOMATION_TOKEN'] ?? $_GET['token'] ?? $_POST['token'] ?? '';
+        $provided = $_SERVER['HTTP_X_AUTOMATION_TOKEN'] ?? null;
+
+        // A token in the URL ends up in access and proxy logs, so it is only accepted when explicitly allowed.
+        if ($provided === null && (bool) Config::get('automation.allow_query_token', false)) {
+            $provided = $_GET['token'] ?? $_POST['token'] ?? null;
+        }
 
         return is_string($provided) && hash_equals($expected, $provided);
     }

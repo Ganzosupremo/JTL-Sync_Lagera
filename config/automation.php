@@ -6,6 +6,7 @@ use App\Support\Setting;
 
 return [
     'token' => Setting::get('AUTOMATION_TOKEN', ''),
+    'allow_query_token' => Setting::get('AUTOMATION_ALLOW_QUERY_TOKEN', false),
     'enabled' => Setting::get('AUTOMATION_ENABLED', true),
     'interval_minutes' => (int) Setting::get('AUTOMATION_INTERVAL_MINUTES', 360),
     'sync_customers' => Setting::get('AUTOMATION_SYNC_CUSTOMERS', false),

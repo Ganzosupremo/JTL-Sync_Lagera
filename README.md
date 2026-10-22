@@ -197,6 +197,8 @@ AUTOMATION_SYNC_CUSTOMERS=false
 AUTOMATION_FULFILLMENT_LIMIT=200
 ```
 
+El token se envia solo en la cabecera `X-Automation-Token`. Un token en la URL (`?token=`) queda en los logs del hosting y de Cloudflare, asi que se rechaza salvo que actives `AUTOMATION_ALLOW_QUERY_TOKEN=true` (solo como transicion mientras cambias el cron).
+
 `/automation/tick` respeta `AUTOMATION_INTERVAL_MINUTES`: puedes ejecutar el cron cada 5 minutos y la app solo correra el flujo completo cuando toque. `/automation/run` fuerza una corrida inmediata con el mismo token. El endpoint HTTP queda deshabilitado si `AUTOMATION_TOKEN` esta vacio.
 
 El tracking hacia JTL requiere que la app registrada tenga scopes `deliverynotes.read` y `deliverynotes.write`, y que JTL ya tenga un `Lieferschein`/delivery note para la orden. Si no existe delivery note, la corrida registra el error y no puede marcar tracking.
@@ -220,6 +222,10 @@ AUTH_ENABLED=true
 AUTH_SESSION_NAME=jtlsync_session
 AUTH_INVITATION_TTL_HOURS=72
 ```
+
+El login esta activo por defecto. Mientras no exista ningun usuario, el panel queda abierto en modo configuracion para que puedas invitar al primero; el dashboard muestra un aviso rojo mientras el login este desactivado o sin usuarios.
+
+Todos los formularios POST llevan un token CSRF de la sesion (campo `_csrf`, o cabecera `X-CSRF-Token` para llamadas por script). Una peticion POST sin token valido recibe 403. Solo `/automation/tick` y `/automation/run` quedan exentos porque usan `AUTOMATION_TOKEN`.
 
 Flujo recomendado:
 
