@@ -8,14 +8,23 @@ use App\Clients\JtlClient;
 use App\Clients\PackiyoClient;
 use App\Models\AutomationOrderSkip;
 use App\Models\OrderDraft;
+use App\Models\OrderSyncFailure;
 use App\Models\PackiyoCustomerMapping;
 use App\Support\HttpException;
+use App\Support\Config;
+use App\Support\Database;
 use App\Support\Logger;
+use App\Support\SyncLock;
 use RuntimeException;
 use Throwable;
 
 final class OrderSyncService
 {
+    private const LOCK_NAME = 'order_sync';
+
+    /** A single-order sync waits this long for a running batch before giving up. */
+    private const SINGLE_ORDER_LOCK_WAIT_SECONDS = 10;
+
     public function __construct(
         private readonly ?JtlClient $jtl = null,
         private readonly ?PackiyoClient $packiyo = null,
@@ -23,14 +32,38 @@ final class OrderSyncService
         private readonly ?AutomationOrderSkip $automationSkips = null,
         private readonly ?Logger $logger = null,
         private readonly ?OrderDraft $drafts = null,
-        private readonly ?OrderPreparationService $preparation = null
+        private readonly ?OrderPreparationService $preparation = null,
+        private readonly ?SyncLock $lock = null,
+        private readonly ?OrderSyncFailure $failures = null
     ) {
     }
 
-    /** @return array{total: int, jtl_returned: int, created: int, linked: int, skipped: int, failed: int, already_synced: int, unmapped: int, requires_review: int, previously_ignored: int, jtl_unreachable: bool, message: string} */
+    /** @return array{total: int, jtl_returned: int, created: int, linked: int, skipped: int, failed: int, already_synced: int, unmapped: int, requires_review: int, previously_ignored: int, jtl_unreachable: bool, locked: bool, message: string} */
     public function sync(?string $customerFilter = null, ?string $mappedCustomerFilter = null, bool $useAutomationSkipCache = false): array
     {
-        $summary = [
+        $summary = $this->syncLock()->run(
+            self::LOCK_NAME,
+            0,
+            fn (): array => $this->syncUnlocked($customerFilter, $mappedCustomerFilter, $useAutomationSkipCache)
+        );
+
+        if ($summary !== null) {
+            return $summary;
+        }
+
+        $message = 'Otra sincronizacion de ordenes ya esta en curso; esta corrida se omitio para no enviar ordenes duplicadas.';
+        $this->log()->warning('order_sync', $message);
+
+        return $this->emptySyncSummary(['locked' => true, 'message' => $message]);
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
+     */
+    private function emptySyncSummary(array $overrides = []): array
+    {
+        return array_merge([
             'total' => 0,
             'jtl_returned' => 0,
             'created' => 0,
@@ -41,9 +74,17 @@ final class OrderSyncService
             'unmapped' => 0,
             'requires_review' => 0,
             'previously_ignored' => 0,
+            'too_old' => 0,
             'jtl_unreachable' => false,
+            'locked' => false,
             'message' => '',
-        ];
+        ], $overrides);
+    }
+
+    /** @return array<string, mixed> */
+    private function syncUnlocked(?string $customerFilter, ?string $mappedCustomerFilter, bool $useAutomationSkipCache): array
+    {
+        $summary = $this->emptySyncSummary();
 
         $this->log()->info('order_sync', 'Order sync started.');
         $jtl = $this->jtlClient();
@@ -62,6 +103,7 @@ final class OrderSyncService
 
         $orders = $this->filterOrders($orders, $customerFilter, $mappedCustomerFilter);
         $summary['jtl_returned'] = count($orders);
+        $orders = $this->filterTooOldOrders($orders, $summary);
 
         if ($useAutomationSkipCache) {
             $orders = $this->filterPreviouslyIgnoredAutomationOrders($orders, $summary);
@@ -107,6 +149,7 @@ final class OrderSyncService
                 $this->log()->warning('order_review', $exception->getMessage());
             } catch (Throwable $exception) {
                 $summary['failed']++;
+                $this->rememberFailure($order, $exception);
                 $this->log()->error('order_sync', $exception->getMessage());
             }
         }
@@ -114,7 +157,7 @@ final class OrderSyncService
         $this->log()->info(
             'order_sync',
             $summary['message'] = sprintf(
-                'Order sync finished. jtl_returned=%d total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d requires_review=%d previously_ignored=%d',
+                'Order sync finished. jtl_returned=%d total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d requires_review=%d previously_ignored=%d too_old=%d',
                 $summary['jtl_returned'],
                 $summary['total'],
                 $summary['created'],
@@ -124,7 +167,8 @@ final class OrderSyncService
                 $summary['already_synced'],
                 $summary['unmapped'],
                 $summary['requires_review'],
-                $summary['previously_ignored']
+                $summary['previously_ignored'],
+                $summary['too_old']
             )
         );
 
@@ -172,6 +216,40 @@ final class OrderSyncService
                     && (string) ($mapping['packiyo_customer_id'] ?? '') === $mappedCustomerFilter;
             }
         ));
+    }
+
+    /**
+     * Batch syncs skip orders older than JTL_ORDERS_MAX_AGE_DAYS, so reading every JTL page
+     * can't suddenly send long-forgotten orders to Packiyo. Orders without a readable date
+     * are kept. A manual single-order sync is not limited.
+     *
+     * @param array<int, array<string, mixed>> $orders
+     * @param array<string, mixed> $summary
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterTooOldOrders(array $orders, array &$summary): array
+    {
+        $maxAgeDays = (int) Config::get('jtl.orders_max_age_days', 30);
+
+        if ($maxAgeDays <= 0) {
+            return $orders;
+        }
+
+        $cutoff = time() - ($maxAgeDays * 86400);
+
+        return array_values(array_filter($orders, function (array $order) use ($cutoff, &$summary): bool {
+            $date = $this->mapper()->orderDate($order);
+            $timestamp = $date !== null ? strtotime($date) : false;
+
+            if ($timestamp === false || $timestamp >= $cutoff) {
+                return true;
+            }
+
+            $summary['skipped']++;
+            $summary['too_old']++;
+
+            return false;
+        }));
     }
 
     /**
@@ -271,6 +349,30 @@ final class OrderSyncService
     /** @return array{total: int, created: int, linked: int, skipped: int, failed: int, message: string} */
     public function syncOne(string $reference, bool $force = false, bool $resendArchived = false): array
     {
+        $summary = $this->syncLock()->run(
+            self::LOCK_NAME,
+            self::SINGLE_ORDER_LOCK_WAIT_SECONDS,
+            fn (): array => $this->syncOneUnlocked($reference, $force, $resendArchived)
+        );
+
+        if ($summary !== null) {
+            return $summary;
+        }
+
+        return [
+            'total' => 1,
+            'created' => 0,
+            'linked' => 0,
+            'skipped' => 1,
+            'failed' => 0,
+            'locked' => true,
+            'message' => 'Hay una sincronizacion de ordenes en curso. Espera a que termine y vuelve a intentarlo.',
+        ];
+    }
+
+    /** @return array{total: int, created: int, linked: int, skipped: int, failed: int, message: string} */
+    private function syncOneUnlocked(string $reference, bool $force, bool $resendArchived): array
+    {
         $reference = trim($reference);
         $summary = [
             'total' => 1,
@@ -313,6 +415,11 @@ final class OrderSyncService
         } catch (Throwable $exception) {
             $summary['failed'] = 1;
             $summary['message'] = 'No se pudo sincronizar la orden JTL ' . $reference . ': ' . $exception->getMessage();
+
+            if (isset($order) && is_array($order)) {
+                $this->rememberFailure($order, $exception);
+            }
+
             $this->log()->error('order_sync', $summary['message']);
         }
 
@@ -415,11 +522,7 @@ final class OrderSyncService
             throw new RuntimeException('Packiyo response did not include an order id for JTL order ' . $jtlOrderId . '.');
         }
 
-        if ($replaceExistingMapping) {
-            $this->mapper()->deleteJtlOrder($jtlOrderId);
-        }
-
-        $this->mapper()->save([
+        $mappingData = [
             'jtl_order_id' => $jtlOrderId,
             'jtl_order_number' => $this->mapper()->jtlOrderNumber($order),
             'packiyo_order_id' => $packiyoOrderId,
@@ -430,7 +533,9 @@ final class OrderSyncService
             'packiyo_customer_id' => $this->packiyoCustomerIdFromPayload($payload),
             'packiyo_customer_name' => $mappedCustomer['packiyo_customer_name'] ?? null,
             'synced_at' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+        $this->saveMapping($jtlOrderId, $mappingData, $replaceExistingMapping);
+        $this->failureModel()->clear($jtlOrderId);
 
         $this->draftModel()->markSent(
             $jtlOrderId,
@@ -808,6 +913,58 @@ final class OrderSyncService
             $order['shipping'] = (float) $data['shipping'];
         }
         return $order;
+    }
+
+    /**
+     * Replacing a mapping (forced resync) deletes and re-creates it in one transaction, so a
+     * failure in between can't leave a JTL order that Packiyo already accepted without a mapping.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function saveMapping(string $jtlOrderId, array $data, bool $replaceExisting): void
+    {
+        if (!$replaceExisting) {
+            $this->mapper()->save($data);
+            return;
+        }
+
+        $db = Database::connection();
+        $db->begin_transaction();
+
+        try {
+            $this->mapper()->deleteJtlOrder($jtlOrderId);
+            $this->mapper()->save($data);
+            $db->commit();
+        } catch (Throwable $exception) {
+            $db->rollback();
+            throw $exception;
+        }
+    }
+
+    /** @param array<string, mixed> $order */
+    private function rememberFailure(array $order, Throwable $exception): void
+    {
+        $jtlOrderId = $this->mapper()->jtlOrderId($order);
+
+        if ($jtlOrderId === null) {
+            return;
+        }
+
+        try {
+            $this->failureModel()->record($jtlOrderId, $this->mapper()->jtlOrderNumber($order), $exception->getMessage());
+        } catch (Throwable $recordException) {
+            $this->log()->warning('order_sync', 'Unable to record sync failure for JTL order ' . $jtlOrderId . ': ' . $recordException->getMessage());
+        }
+    }
+
+    private function syncLock(): SyncLock
+    {
+        return $this->lock ?? new SyncLock();
+    }
+
+    private function failureModel(): OrderSyncFailure
+    {
+        return $this->failures ?? new OrderSyncFailure();
     }
 
     private function jtlClient(): JtlClient

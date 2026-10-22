@@ -32,7 +32,7 @@ final class SyncController
             return;
         }
 
-        $message = (bool) ($summary['jtl_unreachable'] ?? false)
+        $message = ((bool) ($summary['jtl_unreachable'] ?? false) || (bool) ($summary['locked'] ?? false))
             && is_string($summary['message'] ?? null)
             && $summary['message'] !== ''
             ? $summary['message']

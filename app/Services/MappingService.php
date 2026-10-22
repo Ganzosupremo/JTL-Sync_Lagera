@@ -145,6 +145,12 @@ final class MappingService
     }
 
     /** @param array<string, mixed> $order */
+    public function orderDate(array $order): ?string
+    {
+        return $this->firstString($order, ['ordered_at', 'created_at', 'date', 'Date', 'orderDate', 'OrderDate', 'creationDate', 'CreationDate', 'SalesOrderDate', 'salesOrderDate']);
+    }
+
+    /** @param array<string, mixed> $order */
     public function jtlOrderNumber(array $order): ?string
     {
         return $this->firstString($order, [

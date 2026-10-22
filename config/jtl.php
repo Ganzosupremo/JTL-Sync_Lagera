@@ -64,6 +64,8 @@ return [
     'product_import_category_id' => Setting::get('JTL_PRODUCT_IMPORT_CATEGORY_ID', ''),
     'product_import_warehouse_id' => Setting::get('JTL_PRODUCT_IMPORT_WAREHOUSE_ID', ''),
     'new_orders_query' => $query,
+    'orders_max_pages' => (int) Setting::get('JTL_ORDERS_MAX_PAGES', 20),
+    'orders_max_age_days' => (int) Setting::get('JTL_ORDERS_MAX_AGE_DAYS', 30),
     'timeout' => (int) Setting::get('JTL_TIMEOUT', 30),
     'ssl_verify' => Setting::get('JTL_SSL_VERIFY', false),
     'api_version' => Setting::get('JTL_API_VERSION', '1.0'),

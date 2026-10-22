@@ -12,6 +12,7 @@ use App\Models\AppUser;
 use App\Models\JtlApiCredential;
 use App\Models\JtlOrderSource;
 use App\Models\OrderMapping;
+use App\Models\OrderSyncFailure;
 use App\Models\ProductNameMapping;
 use App\Models\PackiyoCustomer;
 use App\Models\PackiyoCustomerMapping;
@@ -2114,6 +2115,12 @@ final class DashboardController
                                             <?php elseif (($order['sync_state'] ?? '') === 'unknown'): ?>
                                                 <span class="status missing_config">sin_verificar</span>
                                                 <div class="muted"><?= $this->e($order['sync_message'] ?? 'No se pudo verificar Packiyo') ?></div>
+                                            <?php elseif (($order['sync_error'] ?? '') !== ''): ?>
+                                                <span class="status failed">error_envio</span>
+                                                <div class="muted" title="<?= $this->e($order['sync_error']) ?>"><?= $this->e(mb_strimwidth((string) $order['sync_error'], 0, 160, '...')) ?></div>
+                                                <?php if (($order['sync_error_at'] ?? '') !== ''): ?>
+                                                    <div class="muted">Ultimo intento <?= $this->e($order['sync_error_at']) ?></div>
+                                                <?php endif; ?>
                                             <?php elseif (!empty($order['review_required'])): ?>
                                                 <span class="status missing_config">requiere_revision</span>
                                                 <div class="muted">Corrige los articulos antes de enviar</div>
@@ -3541,6 +3548,7 @@ final class DashboardController
             if ($candidateId !== null) $orderIds[] = $candidateId;
         }
         $skipReasons = (new AutomationOrderSkip())->findReasonsForOrderIds($orderIds);
+        $syncFailures = (new OrderSyncFailure())->findByJtlOrderIds($orderIds);
         $customerMappingRows = $customerMappings->all();
         $orderMappingsByJtlOrderId = $orderMappings->findByJtlOrderIds($orderIds);
 
@@ -3576,6 +3584,8 @@ final class DashboardController
                 'sync_state' => $syncState['state'],
                 'sync_message' => $syncState['message'],
                 'review_required' => ($skipReasons[$id ?? ''] ?? '') === 'requires_review',
+                'sync_error' => $orderMapping === null ? (string) ($syncFailures[$id ?? '']['last_error'] ?? '') : '',
+                'sync_error_at' => $orderMapping === null ? (string) ($syncFailures[$id ?? '']['last_failed_at'] ?? '') : '',
                 'candidate_summary' => $resolver->describeCandidates($order),
             ];
         }
