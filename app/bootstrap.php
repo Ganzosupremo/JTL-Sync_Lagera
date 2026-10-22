@@ -22,7 +22,7 @@ spl_autoload_register(static function (string $class): void {
     }
 });
 
-Env::load(BASE_PATH . '/.env');
+Env::load((string) (getenv('APP_ENV_FILE') ?: BASE_PATH . '/.env'));
 
 $timezone = Config::get('app.timezone', 'UTC');
 date_default_timezone_set(is_string($timezone) && $timezone !== '' ? $timezone : 'UTC');
