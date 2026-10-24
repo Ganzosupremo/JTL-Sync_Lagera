@@ -129,6 +129,13 @@ final class Auth
         return is_numeric($id) && (int) $id > 0 ? (int) $id : null;
     }
 
+    public function currentUsername(): ?string
+    {
+        $username = $_SESSION['auth_user'] ?? null;
+
+        return is_string($username) && $username !== '' ? $username : null;
+    }
+
     private function attemptLegacy(string $username, string $password): bool
     {
         if (!$this->legacyConfigured()) {

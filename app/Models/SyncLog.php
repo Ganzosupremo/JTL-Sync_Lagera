@@ -60,6 +60,45 @@ final class SyncLog
         return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
     }
 
+    /**
+     * Newest logs first, optionally narrowed by level, source and a text fragment.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function search(?string $level = null, ?string $source = null, ?string $contains = null, int $limit = 100): array
+    {
+        $conditions = [];
+        $types = '';
+        $params = [];
+
+        foreach (['level' => $level, 'source' => $source] as $column => $value) {
+            $value = trim((string) $value);
+
+            if ($value !== '') {
+                $conditions[] = $column . ' = ?';
+                $types .= 's';
+                $params[] = $value;
+            }
+        }
+
+        $contains = trim((string) $contains);
+
+        if ($contains !== '') {
+            $conditions[] = 'message LIKE ?';
+            $types .= 's';
+            $params[] = '%' . addcslashes($contains, '%_\\') . '%';
+        }
+
+        $where = $conditions === [] ? '' : 'WHERE ' . implode(' AND ', $conditions) . ' ';
+        $statement = $this->connection()->prepare('SELECT * FROM sync_logs ' . $where . 'ORDER BY created_at DESC, id DESC LIMIT ?');
+        $types .= 'i';
+        $params[] = $limit;
+        $statement->bind_param($types, ...$params);
+        $statement->execute();
+
+        return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
     public function countErrorsToday(): int
     {
         $statement = $this->connection()->prepare(
