@@ -288,6 +288,20 @@ final class Database
             )"
         );
 
+        // Users created before roles existed keep full access.
+        self::addColumnIfMissing($db, 'app_users', 'role', "role VARCHAR(20) NOT NULL DEFAULT 'admin' AFTER password_hash");
+        self::addColumnIfMissing($db, 'app_user_invitations', 'role', "role VARCHAR(20) NOT NULL DEFAULT 'admin' AFTER email");
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS login_attempts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                login VARCHAR(255) NOT NULL,
+                attempted_at DATETIME NOT NULL,
+                KEY login_attempts_login_index (login, attempted_at),
+                KEY login_attempts_attempted_at_index (attempted_at)
+            )"
+        );
+
         $db->query(
             "CREATE TABLE IF NOT EXISTS product_mappings (
                 id INT AUTO_INCREMENT PRIMARY KEY,

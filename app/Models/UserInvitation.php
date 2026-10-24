@@ -14,9 +14,13 @@ final class UserInvitation
     {
     }
 
-    public function create(string $email, ?int $createdByUserId, int $ttlHours): string
+    public function create(string $email, ?int $createdByUserId, int $ttlHours, string $role = AppUser::ROLE_ADMIN): string
     {
         $email = strtolower(trim($email));
+
+        if (!in_array($role, AppUser::ROLES, true)) {
+            throw new RuntimeException('Rol invalido para la invitacion.');
+        }
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new RuntimeException('Email invalido para la invitacion.');
@@ -30,14 +34,15 @@ final class UserInvitation
         $statement = $this->connection()->prepare(
             'INSERT INTO app_user_invitations (
                 email,
+                role,
                 token_hash,
                 created_by_user_id,
                 expires_at,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)'
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
-        $statement->bind_param('ssisss', $email, $tokenHash, $createdByUserId, $expiresAt, $now, $now);
+        $statement->bind_param('sssisss', $email, $role, $tokenHash, $createdByUserId, $expiresAt, $now, $now);
         $statement->execute();
 
         return $token;

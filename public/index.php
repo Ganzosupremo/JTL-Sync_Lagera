@@ -22,8 +22,10 @@ use App\Controllers\SettingsController;
 use App\Controllers\SyncController;
 use App\Controllers\UserInvitationController;
 use App\Support\Auth;
+use App\Support\Config;
 use App\Support\Csrf;
 use App\Support\Database;
+use App\Support\Logger;
 
 require dirname(__DIR__) . '/app/bootstrap.php';
 
@@ -51,7 +53,25 @@ if (!in_array($path, $publicPaths, true)) {
 
 // The cron endpoints authenticate with AUTOMATION_TOKEN instead of a browser session.
 $csrfExemptPaths = ['/automation/run', '/automation/tick'];
-new Auth(); // Starts the session that holds the CSRF token.
+$auth = new Auth(); // Also starts the session that holds the CSRF token.
+
+// Operators can sync and fix orders; only admins change settings, users and the JTL registration.
+$adminPaths = [
+    '/settings',
+    '/users/invite',
+    '/users/invite/revoke',
+    '/jtl/register',
+    '/jtl/register/complete',
+    '/jtl/register/reset',
+    '/order-corrections/execute',
+];
+
+if (in_array($path, $adminPaths, true) && !$auth->isAdmin()) {
+    http_response_code(403);
+    header('Content-Type: text/html; charset=UTF-8');
+    echo 'Solo un administrador puede hacer esto. <a href="javascript:history.back()">Volver</a>';
+    exit;
+}
 
 if (
     ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST'
@@ -113,8 +133,19 @@ try {
         default => notFound(),
     };
 } catch (Throwable $exception) {
+    // The details (paths, SQL, internal URLs) go to the log; the browser only gets a reference.
+    $reference = bin2hex(random_bytes(4));
+
+    try {
+        (new Logger())->error('app', '[' . $reference . '] ' . $exception::class . ': ' . $exception->getMessage() . ' at ' . $exception->getFile() . ':' . $exception->getLine());
+    } catch (Throwable) {
+        error_log('[' . $reference . '] ' . $exception->getMessage());
+    }
+
     http_response_code(500);
-    echo 'Application error: ' . htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8');
+    echo (bool) Config::get('app.debug', false)
+        ? 'Application error: ' . htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8')
+        : 'Error interno. Busca la referencia ' . $reference . ' en la pestana Logs.';
 }
 
 function notFound(): void

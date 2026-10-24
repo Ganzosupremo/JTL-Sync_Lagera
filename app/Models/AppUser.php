@@ -11,6 +11,13 @@ use RuntimeException;
 
 final class AppUser
 {
+    public const ROLE_ADMIN = 'admin';
+
+    /** Can run syncs and fix orders, but not change settings, users or the JTL registration. */
+    public const ROLE_OPERATOR = 'operator';
+
+    public const ROLES = [self::ROLE_ADMIN, self::ROLE_OPERATOR];
+
     public function __construct(private readonly ?mysqli $db = null)
     {
     }
@@ -52,7 +59,7 @@ final class AppUser
     public function all(): array
     {
         $result = $this->connection()->query(
-            'SELECT id, username, email, active, last_login_at, created_at, updated_at
+            'SELECT id, username, email, role, active, last_login_at, created_at, updated_at
             FROM app_users
             ORDER BY active DESC, username ASC'
         );
@@ -60,8 +67,12 @@ final class AppUser
         return $result->fetch_all(MYSQLI_ASSOC);
     }
 
-    public function create(string $username, string $email, string $password): int
+    public function create(string $username, string $email, string $password, string $role = self::ROLE_ADMIN): int
     {
+        if (!in_array($role, self::ROLES, true)) {
+            throw new RuntimeException('Rol de usuario invalido.');
+        }
+
         $username = trim($username);
         $email = strtolower(trim($email));
 
@@ -81,12 +92,13 @@ final class AppUser
                 username,
                 email,
                 password_hash,
+                role,
                 active,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, 1, ?, ?)'
+            ) VALUES (?, ?, ?, ?, 1, ?, ?)'
         );
-        $statement->bind_param('sssss', $username, $email, $hash, $now, $now);
+        $statement->bind_param('ssssss', $username, $email, $hash, $role, $now, $now);
 
         try {
             $statement->execute();
