@@ -27,6 +27,29 @@ final class SyncLog
         return (int) $this->connection()->insert_id;
     }
 
+    /**
+     * Deletes logs older than $days in batches, so a large backlog never holds a long lock on the table.
+     * Returns how many rows were removed; $days <= 0 keeps everything.
+     */
+    public function prune(int $days, int $batchSize = 5000): int
+    {
+        if ($days <= 0) {
+            return 0;
+        }
+
+        $statement = $this->connection()->prepare('DELETE FROM sync_logs WHERE created_at < ? LIMIT ?');
+        $cutoff = date('Y-m-d H:i:s', strtotime('-' . $days . ' days'));
+        $statement->bind_param('si', $cutoff, $batchSize);
+        $deleted = 0;
+
+        do {
+            $statement->execute();
+            $deleted += $statement->affected_rows;
+        } while ($statement->affected_rows >= $batchSize);
+
+        return $deleted;
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function recent(int $limit = 100): array
     {

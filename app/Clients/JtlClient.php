@@ -17,8 +17,6 @@ final class JtlClient
     /** JTL's default page size; set explicitly so paging is predictable. */
     private const ORDERS_PAGE_SIZE = 100;
 
-    public const WORKER_CONTROL_CLIENT_VERSION = 'worker-v1-canonical-only-20260705';
-
     /**
      * JTL's fixed DeliveryNoteWorkflowEvent enum (REST Contracts V1): 1 = Created, 2 = Deleted, 3 = Shipped.
      * Triggering "Shipped" is what flips the delivery note's/order's shipped status inside JTL-Wawi so that
@@ -120,29 +118,10 @@ final class JtlClient
             return [];
         }
 
-        $lastException = null;
-        $syncIds = $this->workerControlIds((string) ($this->config['worker_sync_id'] ?? ''));
-        $syncIds = $syncIds !== [] ? $syncIds : [''];
+        $syncId = trim((string) ($this->config['worker_sync_id'] ?? ''));
+        $options = $syncId !== '' ? ['query' => ['syncId' => $syncId]] : [];
 
-        foreach ($this->workerCanonicalStatusEndpoints() as $candidate) {
-            foreach ($syncIds as $syncId) {
-                foreach ($this->workerStatusQueryVariants($syncId) as $options) {
-                    foreach ($this->workerControlRequestVariants($options, $candidate) as $requestOptions) {
-                        try {
-                            return $this->http->get($candidate, $requestOptions);
-                        } catch (HttpException $exception) {
-                            $lastException = $exception;
-
-                            if (!$this->shouldTryWorkerEndpointFallback($exception)) {
-                                throw $exception;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        throw $lastException ?? new RuntimeException('Unable to read JTL worker status.');
+        return $this->workerGet($endpoint, $options, 'Unable to read JTL worker status.');
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -154,34 +133,7 @@ final class JtlClient
             return [];
         }
 
-        $lastException = null;
-        $response = null;
-
-        $errors = [];
-
-        foreach ($this->workerRequestVariants() as $variant => $options) {
-            foreach ($this->workerCollectionEndpointCandidates($endpoint) as $candidate) {
-                try {
-                    $response = $this->http->get($candidate, $options);
-                    break 2;
-                } catch (HttpException $exception) {
-                    $lastException = $exception;
-                    $errors[] = '[' . $variant . '] ' . $exception->getMessage();
-
-                    if (!$this->shouldTryWorkerEndpointFallback($exception)) {
-                        throw $exception;
-                    }
-                }
-            }
-        }
-
-        if ($response === null) {
-            if ($errors !== []) {
-                throw new RuntimeException('Unable to read JTL worker syncs. Tried: ' . implode(' | ', $errors));
-            }
-
-            throw $lastException ?? new RuntimeException('Unable to read JTL worker syncs.');
-        }
+        $response = $this->workerGet($endpoint, [], 'Unable to read JTL worker syncs.');
 
         if (array_is_list($response)) {
             return array_values(array_map(
@@ -193,55 +145,6 @@ final class JtlClient
         }
 
         return $this->collection($response);
-    }
-
-    /** @return array<string, mixed> */
-    public function startWorkerSync(string $syncId, string $syncName = ''): array
-    {
-        $method = strtoupper((string) ($this->config['worker_sync_method'] ?? 'POST'));
-        $method = $method === 'GET' ? 'PUT' : $method;
-        $endpoint = (string) ($this->config['worker_endpoint'] ?? '');
-
-        if ($endpoint === '') {
-            throw new RuntimeException('JTL worker endpoint is not configured.');
-        }
-
-        if (!in_array($method, ['POST', 'PUT', 'PATCH', 'GET'], true)) {
-            throw new RuntimeException('Unsupported JTL worker sync method: ' . $method);
-        }
-
-        $lastException = null;
-
-        foreach ($this->workerCanonicalControlEndpoints($syncId) as $candidate) {
-            foreach ($this->workerSyncRequestPayloads($syncId, $syncName, $candidate) as $options) {
-                foreach ($this->workerControlRequestVariants($options, $candidate) as $requestOptions) {
-                    try {
-                        return $this->http->request($method, $candidate, $requestOptions);
-                    } catch (HttpException $exception) {
-                        $lastException = $exception;
-
-                        if (!$this->shouldTryWorkerControlFallback($exception)) {
-                            throw $exception;
-                        }
-                    }
-                }
-            }
-        }
-
-        throw $lastException ?? new RuntimeException('Unable to start JTL worker sync.');
-    }
-
-    /** @return array<string, mixed> */
-    public function workerControlDebugInfo(string $syncId): array
-    {
-        $endpoint = (string) ($this->config['worker_endpoint'] ?? '');
-
-        return [
-            'version' => self::WORKER_CONTROL_CLIENT_VERSION,
-            'configured_endpoint' => $endpoint,
-            'candidates' => $this->workerCanonicalControlEndpoints($syncId),
-            'ignored_config_candidates' => $this->workerControlEndpointCandidates($endpoint, $syncId),
-        ];
     }
 
     /** @return array<string, mixed> */
@@ -601,33 +504,57 @@ final class JtlClient
         return str_replace('{id}', rawurlencode($id), (string) ($this->config['delivery_note_packages_endpoint'] ?? ''));
     }
 
-    private function workerSyncEndpoint(string $syncId): string
+    /**
+     * The Worker endpoints are versioned (/v1/workers) and reject the api-version header that the rest of
+     * the API needs, so each read tries at most: the configured path and the canonical /v1 path, each first
+     * without and then with the default api-version header. That is four requests in the worst case.
+     *
+     * @param array<string, mixed> $options
+     * @return array<mixed>
+     */
+    private function workerGet(string $endpoint, array $options, string $failureMessage): array
     {
-        $endpoint = (string) ($this->config['worker_endpoint'] ?? '');
-
-        return str_replace(
-            ['{id}', '{syncId}', '{sync_id}'],
-            rawurlencode($syncId),
-            $endpoint
+        $withoutApiVersion = $options;
+        $withoutApiVersion['headers'] = array_merge(
+            is_array($options['headers'] ?? null) ? $options['headers'] : [],
+            ['api-version' => '']
         );
+        $errors = [];
+        $lastException = null;
+
+        foreach ($this->workerEndpointCandidates($endpoint) as $candidate) {
+            foreach (['without api-version header' => $withoutApiVersion, 'default headers' => $options] as $variant => $requestOptions) {
+                try {
+                    return $this->http->get($candidate, $requestOptions);
+                } catch (HttpException $exception) {
+                    $lastException = $exception;
+                    $errors[] = '[' . $variant . '] ' . $exception->getMessage();
+
+                    if (!$this->shouldTryWorkerEndpointFallback($exception)) {
+                        throw $exception;
+                    }
+                }
+            }
+        }
+
+        if (count($errors) > 1) {
+            throw new RuntimeException($failureMessage . ' Tried: ' . implode(' | ', $errors), 0, $lastException);
+        }
+
+        throw $lastException ?? new RuntimeException($failureMessage);
     }
 
     /** @return array<int, string> */
-    private function workerCanonicalControlEndpoints(string $syncId): array
+    private function workerEndpointCandidates(string $endpoint): array
     {
-        $prefix = $this->workerCanonicalPrefix() . '/workers/';
-        $ids = $this->workerControlIds($syncId);
-
-        return array_map(
-            static fn (string $id): string => $prefix . rawurlencode($id),
-            $ids
+        $canonical = preg_replace(
+            '#^(?:/api/eazybusiness)?/(?:v[0-9]+/)?workers#i',
+            $this->workerCanonicalPrefix() . '/workers',
+            $endpoint,
+            1
         );
-    }
 
-    /** @return array<int, string> */
-    private function workerCanonicalStatusEndpoints(): array
-    {
-        return [$this->workerCanonicalPrefix() . '/workers/status'];
+        return array_values(array_unique(array_filter([$endpoint, is_string($canonical) ? $canonical : ''])));
     }
 
     private function workerCanonicalPrefix(): string
@@ -635,193 +562,6 @@ final class JtlClient
         $basePath = strtolower(trim((string) (parse_url((string) ($this->config['base_url'] ?? ''), PHP_URL_PATH) ?: ''), '/'));
 
         return str_ends_with($basePath, 'api/eazybusiness') ? '/v1' : '/api/eazybusiness/v1';
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function workerStatusQueryVariants(string $syncId): array
-    {
-        if ($syncId === '') {
-            return [[]];
-        }
-
-        return [
-            ['query' => ['syncId' => $syncId]],
-            ['query' => ['SyncId' => $syncId]],
-            ['query' => ['syncId.Reference' => $syncId]],
-            ['query' => ['SyncId.Reference' => $syncId]],
-            ['query' => ['syncId.Value' => $syncId]],
-            ['query' => ['SyncId.Value' => $syncId]],
-            ['query' => ['reference' => $syncId]],
-            ['query' => ['Reference' => $syncId]],
-        ];
-    }
-
-    /** @return array<int, string> */
-    private function workerControlIds(string $syncId): array
-    {
-        $ids = [$syncId];
-
-        foreach (($this->config['worker_sync_fallback_ids'] ?? []) as $fallbackId) {
-            if (is_scalar($fallbackId)) {
-                $ids[] = trim((string) $fallbackId);
-            }
-        }
-
-        return array_values(array_filter(array_unique($ids), static fn (string $id): bool => $id !== ''));
-    }
-
-    /** @return array<int, string> */
-    private function workerControlEndpointCandidates(string $endpoint, string $syncId): array
-    {
-        $encodedSyncId = rawurlencode($syncId);
-        $configured = str_replace(['{id}', '{syncId}', '{sync_id}'], $encodedSyncId, $endpoint);
-        $candidates = [];
-
-        if ($this->workerActionIsInPath($configured)) {
-            $candidates[] = $configured;
-        }
-
-        foreach ($this->workerPathControlCandidates($endpoint, $encodedSyncId) as $candidate) {
-            $candidates[] = $candidate;
-        }
-
-        if (!$this->workerActionIsInPath($configured) && !str_contains(strtolower($configured), '/workers/control')) {
-            $candidates[] = $configured;
-        }
-
-        return array_values(array_filter(array_unique(array_map(
-            fn (string $candidate): string => rtrim($this->workerVersionedControlEndpoint($candidate), '/'),
-            $candidates
-        ))));
-    }
-
-    /** @return array<int, string> */
-    private function workerPathControlCandidates(string $endpoint, string $encodedSyncId): array
-    {
-        $normalized = rtrim($endpoint, '/');
-        $candidates = [];
-
-        foreach ([
-            '/api/eazybusiness/v2/workers/control',
-            '/api/eazybusiness/v1/workers/control',
-            '/api/eazybusiness/workers/control',
-        ] as $controlPath) {
-            if (str_contains($normalized, $controlPath)) {
-                $candidates[] = str_replace($controlPath, '/api/eazybusiness/v1/workers/' . $encodedSyncId, $normalized);
-                return $candidates;
-            }
-        }
-
-        if (preg_match('#/api/eazybusiness/(?:v[0-9]+/)?workers(?:/\{(?:id|syncId|sync_id)\})?$#', $normalized) === 1) {
-            $base = preg_replace('#(?:/\{(?:id|syncId|sync_id)\})?$#', '', $normalized) ?? $normalized;
-            $candidates[] = rtrim($base, '/') . '/' . $encodedSyncId;
-        }
-
-        return $candidates;
-    }
-
-    private function workerVersionedControlEndpoint(string $endpoint): string
-    {
-        $normalized = preg_replace(
-            '#/api/eazybusiness/(?:v[0-9]+/)?workers/#i',
-            '/api/eazybusiness/v1/workers/',
-            $endpoint,
-            1
-        );
-
-        return is_string($normalized) ? $normalized : $endpoint;
-    }
-
-    private function isSupportedWorkerControlEndpoint(string $endpoint): bool
-    {
-        $path = strtolower(parse_url($endpoint, PHP_URL_PATH) ?: $endpoint);
-
-        return preg_match(
-            '#/api/eazybusiness/v1/workers/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$#',
-            $path
-        ) === 1;
-    }
-
-    /**
-     * @param array<string, mixed> $options
-     * @return array<string, array<string, mixed>>
-     */
-    private function workerControlRequestVariants(array $options, string $endpoint): array
-    {
-        $withoutApiVersion = $options;
-        $headers = is_array($withoutApiVersion['headers'] ?? null) ? $withoutApiVersion['headers'] : [];
-        $headers['api-version'] = '';
-        $withoutApiVersion['headers'] = $headers;
-
-        if (str_contains($endpoint, '/api/eazybusiness/v1/') || str_contains($endpoint, '/api/eazybusiness/v2/')) {
-            return ['without api-version header' => $withoutApiVersion];
-        }
-
-        return [
-            'without api-version header' => $withoutApiVersion,
-            'default headers' => $options,
-        ];
-    }
-
-    /** @return array<int, string> */
-    private function workerEndpointCandidates(string $endpoint): array
-    {
-        $candidates = [$endpoint];
-
-        if (str_contains($endpoint, '/api/eazybusiness/v1/workers')) {
-            $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/workers', $endpoint);
-            $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/v2/workers', $endpoint);
-            $candidates[] = preg_replace('#/api/eazybusiness/v1/workers(?:/.*)?$#', '/api/eazybusiness/v2/workers/control', $endpoint) ?? $endpoint;
-        }
-
-        if (str_contains($endpoint, '/api/eazybusiness/workers')) {
-            $candidates[] = str_replace('/api/eazybusiness/workers', '/api/eazybusiness/v1/workers', $endpoint);
-            $candidates[] = str_replace('/api/eazybusiness/workers', '/api/eazybusiness/v2/workers', $endpoint);
-            $candidates[] = preg_replace('#/api/eazybusiness/workers(?:/.*)?$#', '/api/eazybusiness/v2/workers/control', $endpoint) ?? $endpoint;
-        }
-
-        if (str_contains($endpoint, '/api/eazybusiness/v2/workers')) {
-            $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/workers', $endpoint);
-            $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/v1/workers', $endpoint);
-        }
-
-        foreach ($candidates as $candidate) {
-            if ($candidate !== '' && !str_ends_with($candidate, '/')) {
-                $candidates[] = $candidate . '/';
-            }
-        }
-
-        return array_values(array_unique($candidates));
-    }
-
-    /** @return array<int, string> */
-    private function workerCollectionEndpointCandidates(string $endpoint): array
-    {
-        $candidates = $this->workerEndpointCandidates($endpoint);
-
-        foreach ($candidates as $candidate) {
-            if (str_contains($candidate, '/api/eazybusiness/v1/workers')) {
-                $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/workers', $candidate);
-                $candidates[] = str_replace('/api/eazybusiness/v1/workers', '/api/eazybusiness/v2/workers', $candidate);
-            }
-
-            if (str_contains($candidate, '/api/eazybusiness/v2/workers')) {
-                $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/workers', $candidate);
-                $candidates[] = str_replace('/api/eazybusiness/v2/workers', '/api/eazybusiness/v1/workers', $candidate);
-            }
-
-            if (str_contains($candidate, '/v1/workers')) {
-                $candidates[] = str_replace('/v1/workers', '/workers', $candidate);
-            }
-
-            if (str_contains($candidate, '/workers/control')) {
-                continue;
-            }
-        }
-
-        return array_values(array_unique($candidates));
     }
 
     private function shouldTryWorkerEndpointFallback(HttpException $exception): bool
@@ -836,182 +576,11 @@ final class JtlClient
 
         $message = strtolower($exception->getMessage());
 
-        return str_contains($message, 'formatnotparsable')
-            || str_contains($message, 'ambiguous api version')
+        return str_contains($message, 'ambiguous api version')
             || str_contains($message, 'api versions were requested')
             || str_contains($message, 'only a single api version')
-            || str_contains($message, 'guid string')
-            || str_contains($message, 'invalid key format')
-            || str_contains($message, 'key must from type guid')
-            || str_contains($message, 'key must from type int')
-            || str_contains($message, "property 'reference'")
             || str_contains($message, 'unsupported api version')
             || str_contains($message, 'does not support the api version');
-    }
-
-    private function shouldTryWorkerControlFallback(HttpException $exception): bool
-    {
-        if ($this->shouldTryWorkerEndpointFallback($exception)) {
-            return true;
-        }
-
-        if ($exception->statusCode() !== 500) {
-            return false;
-        }
-
-        $message = strtolower($exception->getMessage());
-
-        return str_contains($message, 'unknown internal error')
-            || str_contains($message, '"errorcode":"unknown"')
-            || str_contains($message, '"title":"internal server error"');
-    }
-
-    /**
-     * @param array<string, mixed> $options
-     * @return array<string, array<string, mixed>>
-     */
-    private function workerRequestVariants(array $options = []): array
-    {
-        $withoutApiVersion = $options;
-        $headers = is_array($withoutApiVersion['headers'] ?? null) ? $withoutApiVersion['headers'] : [];
-        $headers['api-version'] = '';
-        $withoutApiVersion['headers'] = $headers;
-
-        $withApiVersion20 = $options;
-        $headers = is_array($withApiVersion20['headers'] ?? null) ? $withApiVersion20['headers'] : [];
-        $headers['api-version'] = '2.0';
-        $withApiVersion20['headers'] = $headers;
-
-        $withApiVersion21 = $options;
-        $headers = is_array($withApiVersion21['headers'] ?? null) ? $withApiVersion21['headers'] : [];
-        $headers['api-version'] = '2.1';
-        $withApiVersion21['headers'] = $headers;
-
-        return [
-            'without api-version header' => $withoutApiVersion,
-            'api-version 2.0 header' => $withApiVersion20,
-            'api-version 2.1 header' => $withApiVersion21,
-            'default headers' => $options,
-        ];
-    }
-
-    private function workerSyncBody(string $syncId, string $syncName, string $endpoint): ?string
-    {
-        $template = trim((string) ($this->config['worker_sync_body_template'] ?? ''));
-        $usesControlEndpoint = str_contains(strtolower($endpoint), '/workers/control');
-        $usesPathControlEndpoint = $this->workerActionIsInPath($endpoint);
-
-        if (
-            $template === ''
-            || $template === '{}'
-            || ($usesControlEndpoint && in_array($template, ['{"Action":0}', '{"action":0}'], true))
-            || ($usesPathControlEndpoint && (str_contains($template, 'sync_id') || str_contains(strtolower($template), 'syncid')))
-        ) {
-            $template = $usesControlEndpoint ? '{"syncId":"{{sync_id}}","action":0}' : '{"Action":0}';
-        }
-
-        $body = str_replace(
-            ['{{sync_id}}', '{{sync_name}}', '{{sales_channel_id}}', '{{sales_channel_name}}'],
-            [
-                $this->jsonStringFragment($syncId),
-                $this->jsonStringFragment($syncName),
-                $this->jsonStringFragment($syncId),
-                $this->jsonStringFragment($syncName),
-            ],
-            $template
-        );
-
-        json_decode($body, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new RuntimeException('JTL worker sync body is not valid JSON: ' . json_last_error_msg());
-        }
-
-        return $body;
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    private function workerSyncRequestPayloads(string $syncId, string $syncName, string $endpoint): array
-    {
-        $payloads = [];
-        $seen = [];
-        $usesPathControlEndpoint = $this->workerActionIsInPath($endpoint);
-
-        if ($usesPathControlEndpoint) {
-            foreach ([
-                ['Action' => 0],
-                ['action' => 0],
-            ] as $payload) {
-                $this->addWorkerBody($payloads, $seen, json_encode($payload, JSON_THROW_ON_ERROR));
-            }
-        }
-
-        $configuredBody = $this->workerSyncBody($syncId, $syncName, $endpoint);
-
-        if ($configuredBody !== null) {
-            $this->addWorkerBody($payloads, $seen, $configuredBody);
-        }
-
-        if (!str_contains(strtolower($endpoint), '/workers/control')) {
-            return $payloads !== [] ? $payloads : [[]];
-        }
-
-        foreach ([
-            ['syncId' => $syncId, 'action' => 0],
-            ['SyncId' => $syncId, 'Action' => 0],
-            ['syncId' => ['value' => $syncId], 'action' => 0],
-            ['SyncId' => ['Value' => $syncId], 'Action' => 0],
-            ['syncId' => ['type' => 'guid', 'value' => $syncId], 'action' => 0],
-            ['SyncId' => ['Type' => 'guid', 'Value' => $syncId], 'Action' => 0],
-            ['syncId' => ['reference' => $syncId], 'action' => 0],
-            ['SyncId' => ['Reference' => $syncId], 'Action' => 0],
-            ['syncId' => ['type' => 'guid', 'reference' => $syncId], 'action' => 0],
-            ['SyncId' => ['Type' => 'guid', 'Reference' => $syncId], 'Action' => 0],
-            ['syncId' => ['key' => $syncId], 'action' => 0],
-            ['SyncId' => ['Key' => $syncId], 'Action' => 0],
-            ['syncId' => 'guid:' . $syncId, 'action' => 0],
-            ['SyncId' => 'guid:' . $syncId, 'Action' => 0],
-            ['syncId' => 'Guid:' . $syncId, 'action' => 0],
-            ['SyncId' => 'Guid:' . $syncId, 'Action' => 0],
-        ] as $payload) {
-            $this->addWorkerBody($payloads, $seen, json_encode($payload, JSON_THROW_ON_ERROR));
-        }
-
-        return $payloads;
-    }
-
-    private function workerActionIsInPath(string $endpoint): bool
-    {
-        $path = strtolower(parse_url($endpoint, PHP_URL_PATH) ?: $endpoint);
-
-        return preg_match(
-            '#/workers/(?:[0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/?$#',
-            $path
-        ) === 1;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $payloads
-     * @param array<string, bool> $seen
-     */
-    private function addWorkerBody(array &$payloads, array &$seen, string $body): void
-    {
-        if (isset($seen[$body])) {
-            return;
-        }
-
-        $seen[$body] = true;
-        $payloads[] = [
-            'body' => $body,
-            'headers' => ['Content-Type' => 'application/json'],
-        ];
-    }
-
-    private function jsonStringFragment(string $value): string
-    {
-        $encoded = json_encode($value, JSON_THROW_ON_ERROR);
-
-        return substr($encoded, 1, -1);
     }
 
     /** @return array<int, array<string, mixed>> */

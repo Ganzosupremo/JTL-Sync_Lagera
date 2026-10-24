@@ -8,7 +8,8 @@ use App\Support\Database;
 require dirname(__DIR__) . '/app/bootstrap.php';
 
 try {
-    Database::migrate();
+    // Forced, so it also repairs tables that went missing while the stored schema version stayed current.
+    Database::migrate(force: true);
 } catch (Throwable $exception) {
     fwrite(STDERR, 'Install failed: ' . $exception->getMessage() . PHP_EOL);
     exit(1);

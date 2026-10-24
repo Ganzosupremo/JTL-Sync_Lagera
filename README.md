@@ -195,7 +195,10 @@ AUTOMATION_ENABLED=true
 AUTOMATION_INTERVAL_MINUTES=360
 AUTOMATION_SYNC_CUSTOMERS=false
 AUTOMATION_FULFILLMENT_LIMIT=200
+LOG_RETENTION_DAYS=30
 ```
+
+Cada corrida de la automatizacion borra los logs de `sync_logs` con mas de `LOG_RETENTION_DAYS` dias (30 por defecto, `0` = guardar todo), en lotes para no bloquear la tabla.
 
 El token se envia solo en la cabecera `X-Automation-Token`. Un token en la URL (`?token=`) queda en los logs del hosting y de Cloudflare, asi que se rechaza salvo que actives `AUTOMATION_ALLOW_QUERY_TOKEN=true` (solo como transicion mientras cambias el cron).
 
@@ -311,6 +314,10 @@ Las lineas con resultado `corrected` o `already_corrected` quedan excluidas de p
 Una linea `JTL-LINE-*` cancelada en Packiyo se omite porque indica que la orden ya fue corregida manualmente agregando el producto correcto. La deteccion reconoce el estado o indicador de cancelacion, la cantidad cancelada y las lineas cuya cantidad quedo en cero. Los analisis nuevos no la guardan y los trabajos existentes la marcan como `ignored_cancelled` al volver a leer la orden, antes de cualquier escritura.
 
 Despues de verificar correctamente la primera orden, el boton `Enviar siguiente batch a Packiyo (max. 10)` procesa las siguientes diez ordenes asignadas y previsualizadas. Antes de agrupar el lote excluye `corrected`, `already_corrected` e `ignored_cancelled`; tambien vuelve a leer cada orden y omite cualquier linea provisional cancelada recientemente.
+
+## Migraciones
+
+Cada entrada (`public/index.php`, los crons) llama a `Database::migrate()`, pero la migracion completa solo corre cuando cambio `app/Support/Database.php`: la app guarda un hash de ese archivo en `app_schema_version` y en el resto de las peticiones solo lee esa fila. Si alguien borra una tabla a mano, `php scripts/install.php` fuerza la migracion completa y la recrea.
 
 ## Tests
 

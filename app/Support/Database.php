@@ -12,6 +12,8 @@ final class Database
 {
     private static ?mysqli $connection = null;
 
+    private static bool $migrated = false;
+
     public static function connection(): mysqli
     {
         if (self::$connection instanceof mysqli) {
@@ -29,10 +31,80 @@ final class Database
         return self::$connection;
     }
 
-    public static function migrate(): void
+    /**
+     * Creates and updates the tables. The schema version is a hash of this file, so the full migration only
+     * runs after a deploy that changed it (or with $force); every other request costs one primary-key read.
+     */
+    public static function migrate(bool $force = false): void
     {
-        $db = self::connection();
+        if (self::$migrated && !$force) {
+            return;
+        }
 
+        $db = self::connection();
+        $version = self::schemaVersion();
+
+        if (!$force && self::storedSchemaVersion($db) === $version) {
+            self::$migrated = true;
+            return;
+        }
+
+        // Two requests right after a deploy must not run the ALTERs at the same time.
+        $db->query("SELECT GET_LOCK('jtlsync_schema_migration', 30)");
+
+        try {
+            if ($force || self::storedSchemaVersion($db) !== $version) {
+                self::runMigrations($db);
+                self::storeSchemaVersion($db, $version);
+            }
+        } finally {
+            $db->query("SELECT RELEASE_LOCK('jtlsync_schema_migration')");
+        }
+
+        self::$migrated = true;
+    }
+
+    public static function schemaVersion(): string
+    {
+        return (string) sha1_file(__FILE__);
+    }
+
+    private static function storedSchemaVersion(mysqli $db): ?string
+    {
+        try {
+            $row = $db->query('SELECT version FROM app_schema_version WHERE id = 1')->fetch_assoc();
+        } catch (mysqli_sql_exception $exception) {
+            if ((int) $exception->getCode() === 1146) { // table doesn't exist yet
+                return null;
+            }
+
+            throw $exception;
+        }
+
+        return is_array($row) ? (string) $row['version'] : null;
+    }
+
+    private static function storeSchemaVersion(mysqli $db, string $version): void
+    {
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS app_schema_version (
+                id TINYINT PRIMARY KEY,
+                version CHAR(40) NOT NULL,
+                migrated_at DATETIME NOT NULL
+            )"
+        );
+
+        $statement = $db->prepare(
+            'INSERT INTO app_schema_version (id, version, migrated_at) VALUES (1, ?, ?)
+            ON DUPLICATE KEY UPDATE version = VALUES(version), migrated_at = VALUES(migrated_at)'
+        );
+        $migratedAt = date('Y-m-d H:i:s');
+        $statement->bind_param('ss', $version, $migratedAt);
+        $statement->execute();
+    }
+
+    private static function runMigrations(mysqli $db): void
+    {
         $db->query(
             "CREATE TABLE IF NOT EXISTS order_mappings (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -128,9 +200,14 @@ final class Database
                 created_at DATETIME NOT NULL,
                 level VARCHAR(20),
                 source VARCHAR(50),
-                message TEXT
+                message TEXT,
+                KEY sync_logs_created_at_index (created_at)
             )"
         );
+
+        if (!self::indexExists($db, 'sync_logs', 'sync_logs_created_at_index')) {
+            $db->query('ALTER TABLE sync_logs ADD KEY sync_logs_created_at_index (created_at)');
+        }
 
         $db->query(
             "CREATE TABLE IF NOT EXISTS jtl_api_credentials (

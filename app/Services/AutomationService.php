@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\AppSyncState;
+use App\Models\SyncLog;
 use App\Support\Config;
 use App\Support\Logger;
 use RuntimeException;
@@ -129,6 +130,8 @@ final class AutomationService
             $this->releaseLock($lock);
         }
 
+        $this->pruneLogs();
+
         $summary['failed'] = $this->failureCount($summary);
         $summary['finished_at'] = date('Y-m-d H:i:s');
         $summary['message'] = sprintf(
@@ -166,6 +169,20 @@ final class AutomationService
                 'failed' => 1,
                 'message' => $exception->getMessage(),
             ];
+        }
+    }
+
+    /** Housekeeping: a failure here is logged but never fails the run. */
+    private function pruneLogs(): void
+    {
+        try {
+            $deleted = (new SyncLog())->prune((int) Config::get('automation.log_retention_days', 30));
+
+            if ($deleted > 0) {
+                $this->log()->info('automation', 'Logs antiguos borrados: ' . $deleted . '.');
+            }
+        } catch (Throwable $exception) {
+            $this->log()->warning('automation', 'No se pudieron borrar logs antiguos: ' . $exception->getMessage());
         }
     }
 
