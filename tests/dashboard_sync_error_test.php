@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 require __DIR__ . '/support/bootstrap.php';
 
-use App\Controllers\DashboardController;
+use App\Views\Dashboard\JtlOrdersView;
 
 $html = (string) callPrivate(
-    new DashboardController(),
-    'renderJtlOrders',
+    new JtlOrdersView(),
+    'render',
     [[
         'id' => 'jtl-200',
         'number' => 'JTL-200',

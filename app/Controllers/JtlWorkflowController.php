@@ -5,17 +5,17 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Clients\JtlClient;
+use App\Support\Arr;
 use App\Support\Database;
 use App\Support\Logger;
 use Throwable;
 
-final class JtlWorkflowController
+final class JtlWorkflowController extends Controller
 {
     public function salesOrderEvents(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 
@@ -48,8 +48,8 @@ final class JtlWorkflowController
         $parts = [];
 
         foreach ($events as $event) {
-            $id = $this->firstScalar($event, ['Id', 'id', 'ID']);
-            $name = $this->firstScalar($event, ['Name', 'name', 'DisplayName', 'displayName']) ?? '';
+            $id = Arr::firstScalar($event, ['Id', 'id', 'ID']);
+            $name = Arr::firstScalar($event, ['Name', 'name', 'DisplayName', 'displayName']) ?? '';
 
             if ($id === null) {
                 $parts[] = $this->shortJson($event);
@@ -62,33 +62,6 @@ final class JtlWorkflowController
         return implode(', ', array_slice($parts, 0, 8));
     }
 
-    /** @param array<string, mixed> $data */
-    private function firstScalar(array $data, array $keys): ?string
-    {
-        foreach ($keys as $key) {
-            if (!array_key_exists($key, $data) || !is_scalar($data[$key])) {
-                continue;
-            }
-
-            $value = trim((string) $data[$key]);
-
-            if ($value !== '') {
-                return $value;
-            }
-        }
-
-        return null;
-    }
-
-    private function startSession(): void
-    {
-        if (PHP_SAPI === 'cli' || session_status() === PHP_SESSION_ACTIVE) {
-            return;
-        }
-
-        session_start();
-    }
-
     private function redirectWithNotice(string $message): void
     {
         $this->startSession();
@@ -96,18 +69,6 @@ final class JtlWorkflowController
 
         header('Location: ' . $this->url('/') . '?tab=settings', true, 303);
         exit;
-    }
-
-    private function compactNotice(string $message): string
-    {
-        $limit = 1600;
-
-        if (strlen($message) <= $limit) {
-            return $message;
-        }
-
-        return substr($message, 0, $limit - 70)
-            . '... Detalle completo guardado en Logs.';
     }
 
     private function friendlyError(string $message): string
@@ -130,13 +91,5 @@ final class JtlWorkflowController
         }
 
         return strlen($json) > 500 ? substr($json, 0, 497) . '...' : $json;
-    }
-
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        $base = $scriptDir === '/' ? '' : rtrim($scriptDir, '/');
-
-        return $base . '/' . ltrim($path, '/');
     }
 }

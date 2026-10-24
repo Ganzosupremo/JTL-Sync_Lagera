@@ -9,7 +9,7 @@ use App\Services\PackiyoCustomerSyncService;
 use App\Support\Database;
 use Throwable;
 
-final class PackiyoCustomerController
+final class PackiyoCustomerController extends Controller
 {
     public function sync(): void
     {
@@ -67,27 +67,8 @@ final class PackiyoCustomerController
         }
     }
 
-    private function isPost(): bool
-    {
-        return ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-    }
-
-    private function methodNotAllowed(): void
-    {
-        http_response_code(405);
-        echo 'Method Not Allowed';
-    }
-
     private function redirect(string $message): void
     {
         header('Location: ' . $this->url('/') . '?tab=packiyo-customers&notice=' . rawurlencode($message), true, 303);
-    }
-
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        $base = $scriptDir === '/' ? '' : rtrim($scriptDir, '/');
-
-        return $base . '/' . ltrim($path, '/');
     }
 }

@@ -9,13 +9,12 @@ use App\Clients\PackiyoClient;
 use App\Services\OrderSyncService;
 use App\Support\Database;
 
-final class SyncController
+final class SyncController extends Controller
 {
     public function run(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 
@@ -65,9 +64,8 @@ final class SyncController
 
     public function runOne(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 
@@ -101,33 +99,11 @@ final class SyncController
         ], JSON_THROW_ON_ERROR);
     }
 
-    private function wantsJson(): bool
-    {
-        $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
-
-        return is_string($accept) && str_contains($accept, 'application/json');
-    }
-
     private function returnTab(mixed $tab): string
     {
         $tab = is_string($tab) ? $tab : 'overview';
         $allowed = ['overview', 'jtl-orders', 'customer-mappings'];
 
         return in_array($tab, $allowed, true) ? $tab : 'overview';
-    }
-
-    private function postedString(string $key): string
-    {
-        $value = $_POST[$key] ?? '';
-
-        return is_scalar($value) ? trim((string) $value) : '';
-    }
-
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        $base = $scriptDir === '/' ? '' : rtrim($scriptDir, '/');
-
-        return $base . '/' . ltrim($path, '/');
     }
 }

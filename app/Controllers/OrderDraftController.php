@@ -13,7 +13,7 @@ use App\Services\OrderSyncService;
 use App\Support\Database;
 use Throwable;
 
-final class OrderDraftController
+final class OrderDraftController extends Controller
 {
     public function save(): void
     {
@@ -148,13 +148,5 @@ final class OrderDraftController
             $query['order_reference'] = $reference;
         }
         header('Location: ' . $this->url('/') . '?' . http_build_query($query), true, 303);
-    }
-
-    private function isPost(): bool { return ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST'; }
-    private function methodNotAllowed(): void { http_response_code(405); echo 'Method Not Allowed'; }
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        return ($scriptDir === '/' ? '' : rtrim($scriptDir, '/')) . '/' . ltrim($path, '/');
     }
 }

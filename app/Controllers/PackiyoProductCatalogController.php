@@ -8,13 +8,12 @@ use App\Services\OrderPreparationService;
 use App\Support\Database;
 use Throwable;
 
-final class PackiyoProductCatalogController
+final class PackiyoProductCatalogController extends Controller
 {
     public function refresh(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 
@@ -35,11 +34,5 @@ final class PackiyoProductCatalogController
             ? ['tab' => 'jtl-orders', 'order_reference' => $orderReference, 'notice' => $message]
             : ['tab' => 'customer-mappings', 'name_customer_id' => $customerId, 'notice' => $message];
         header('Location: ' . $this->url('/') . '?' . http_build_query($params), true, 303);
-    }
-
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        return ($scriptDir === '/' ? '' : rtrim($scriptDir, '/')) . '/' . ltrim($path, '/');
     }
 }

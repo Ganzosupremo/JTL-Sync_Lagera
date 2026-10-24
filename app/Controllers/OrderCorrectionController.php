@@ -8,7 +8,7 @@ use App\Services\OrderCorrectionService;
 use App\Support\Auth;
 use Throwable;
 
-final class OrderCorrectionController
+final class OrderCorrectionController extends Controller
 {
     public function start(): void
     {
@@ -174,7 +174,7 @@ final class OrderCorrectionController
 
     private function postOnly(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        if (!$this->isPost()) {
             http_response_code(405);
             exit('Method Not Allowed');
         }
@@ -188,11 +188,5 @@ final class OrderCorrectionController
         }
         header('Location: ' . $this->url('/?') . http_build_query($query), true, 303);
         exit;
-    }
-
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        return ($scriptDir === '/' ? '' : rtrim($scriptDir, '/')) . '/' . ltrim($path, '/');
     }
 }

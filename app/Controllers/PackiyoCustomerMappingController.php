@@ -9,7 +9,7 @@ use App\Models\PackiyoCustomerMapping;
 use App\Support\Database;
 use Throwable;
 
-final class PackiyoCustomerMappingController
+final class PackiyoCustomerMappingController extends Controller
 {
     public function store(): void
     {
@@ -62,27 +62,8 @@ final class PackiyoCustomerMappingController
         }
     }
 
-    private function isPost(): bool
-    {
-        return ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-    }
-
-    private function methodNotAllowed(): void
-    {
-        http_response_code(405);
-        echo 'Method Not Allowed';
-    }
-
     private function redirect(string $message): void
     {
         header('Location: ' . $this->url('/') . '?tab=customer-mappings&notice=' . rawurlencode($message), true, 303);
-    }
-
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        $base = $scriptDir === '/' ? '' : rtrim($scriptDir, '/');
-
-        return $base . '/' . ltrim($path, '/');
     }
 }

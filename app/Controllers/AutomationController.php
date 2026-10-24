@@ -8,7 +8,7 @@ use App\Services\AutomationService;
 use App\Support\Config;
 use App\Support\Database;
 
-final class AutomationController
+final class AutomationController extends Controller
 {
     public function run(): void
     {
@@ -22,9 +22,8 @@ final class AutomationController
 
     public function manual(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 
@@ -76,13 +75,5 @@ final class AutomationController
         }
 
         return is_string($provided) && hash_equals($expected, $provided);
-    }
-
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        $base = $scriptDir === '/' ? '' : rtrim($scriptDir, '/');
-
-        return $base . '/' . ltrim($path, '/');
     }
 }

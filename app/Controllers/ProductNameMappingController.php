@@ -10,7 +10,7 @@ use App\Services\OrderPreparationService;
 use App\Support\Database;
 use Throwable;
 
-final class ProductNameMappingController
+final class ProductNameMappingController extends Controller
 {
     public function store(): void
     {
@@ -61,6 +61,4 @@ final class ProductNameMappingController
         $base = $scriptDir === '/' ? '' : rtrim($scriptDir, '/');
         header('Location: ' . $base . '/?' . http_build_query(['tab' => 'customer-mappings', 'name_customer_id' => $customerId, 'notice' => $message]), true, 303);
     }
-    private function isPost(): bool { return ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST'; }
-    private function methodNotAllowed(): void { http_response_code(405); echo 'Method Not Allowed'; }
 }

@@ -315,6 +315,14 @@ Una linea `JTL-LINE-*` cancelada en Packiyo se omite porque indica que la orden 
 
 Despues de verificar correctamente la primera orden, el boton `Enviar siguiente batch a Packiyo (max. 10)` procesa las siguientes diez ordenes asignadas y previsualizadas. Antes de agrupar el lote excluye `corrected`, `already_corrected` e `ignored_cancelled`; tambien vuelve a leer cada orden y omite cualquier linea provisional cancelada recientemente.
 
+## Estructura del codigo
+
+- `public/index.php`: router, login, CSRF y permisos de administrador.
+- `app/Controllers/`: un controlador por grupo de acciones. Todos extienden `Controller`, que trae `url()`, `e()`, `isPost()`, `methodNotAllowed()`, `wantsJson()`, `postedString()`, `startSession()` y `compactNotice()`.
+- `app/Views/Dashboard/`: el HTML del dashboard. `DashboardController` solo junta los datos y se los pasa a `DashboardPage`, que arma la cabecera y las pestañas y delega cada pestaña en su vista (`JtlOrdersView`, `FulfillmentView`, `SettingsView`, ...). Los estilos y scripts estan en `dashboard.css` y `dashboard.js` y se incrustan en la pagina.
+- `app/Services/`, `app/Clients/`, `app/Models/`: logica de sync, clientes HTTP de JTL y Packiyo, y acceso a MySQL.
+- `app/Support/`: piezas compartidas (configuracion, base de datos, auth, cifrado, `Arr` para leer payloads con claves en varios formatos).
+
 ## Migraciones
 
 Cada entrada (`public/index.php`, los crons) llama a `Database::migrate()`, pero la migracion completa solo corre cuando cambio `app/Support/Database.php`: la app guarda un hash de ese archivo en `app_schema_version` y en el resto de las peticiones solo lee esa fila. Si alguien borra una tabla a mano, `php scripts/install.php` fuerza la migracion completa y la recrea.
