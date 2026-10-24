@@ -5,7 +5,7 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/app/bootstrap.php';
 
 use App\Services\OrderCorrectionService;
-use App\Controllers\DashboardController;
+use App\Views\Dashboard\OrderCorrectionsView;
 
 $includedResponse = [
     'data' => [
@@ -133,9 +133,9 @@ foreach (['picking', 'packing', 'shipped', 'fulfilled', 'cancelled', 'processed'
     assertTrueCorrection(!OrderCorrectionService::isEditableStatus($status), 'Debe bloquear estado no editable: ' . $status);
 }
 
-$render = new ReflectionMethod(DashboardController::class, 'renderOrderCorrections');
+$render = new ReflectionMethod(OrderCorrectionsView::class, 'render');
 $render->setAccessible(true);
-$html = (string) $render->invoke(new DashboardController(), [
+$html = (string) $render->invoke(new OrderCorrectionsView(), [
     'job' => [
         'id' => 'job-1', 'status' => 'running', 'cursor_page' => 2, 'scanned_orders' => 25,
         'detected_lines' => 1, 'window_start' => '2026-03-01', 'updated_at' => '2026-08-31',

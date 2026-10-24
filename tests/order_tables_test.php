@@ -4,17 +4,16 @@ declare(strict_types=1);
 
 require __DIR__ . '/support/bootstrap.php';
 
-use App\Controllers\DashboardController;
 use App\Clients\JtlClient;
 use App\Services\FulfillmentSyncService;
 use App\Support\HttpException;
+use App\Views\Dashboard\FulfillmentView;
+use App\Views\Dashboard\JtlOrdersView;
 
-$controller = new DashboardController();
-
-$renderJtlOrders = new ReflectionMethod(DashboardController::class, 'renderJtlOrders');
+$renderJtlOrders = new ReflectionMethod(JtlOrdersView::class, 'render');
 $renderJtlOrders->setAccessible(true);
 $jtlHtml = (string) $renderJtlOrders->invoke(
-    $controller,
+    new JtlOrdersView(),
     [[
         'id' => 'jtl-100',
         'number' => 'JTL-100',
@@ -54,10 +53,10 @@ assertContainsText('data-jtl-contact="Ada Lovelace"', $jtlHtml, 'Cada orden debe
 assertContainsText('data-jtl-mapped-customer="42"', $jtlHtml, 'Cada orden debe exponer el cliente Packiyo para el filtro local.');
 assertContainsText('data-clear-jtl-filters', $jtlHtml, 'El filtro local JTL debe poder limpiarse sin recargar.');
 
-$renderFulfillment = new ReflectionMethod(DashboardController::class, 'renderFulfillment');
+$renderFulfillment = new ReflectionMethod(FulfillmentView::class, 'render');
 $renderFulfillment->setAccessible(true);
 $fulfillmentHtml = (string) $renderFulfillment->invoke(
-    $controller,
+    new FulfillmentView(),
     [[
         'jtl_order_id' => 'jtl-100',
         'jtl_order_number' => 'JTL-100',
@@ -100,7 +99,8 @@ assertContainsText('C000TEST101', $fulfillmentHtml, 'Fulfillment debe mostrar el
 assertContainsText('Esperando tracking', $fulfillmentHtml, 'Fulfillment debe mostrar mappings que aun esperan tracking.');
 assertContainsText('Revisado 2026-08-25T12:30:00+00:00', $fulfillmentHtml, 'Fulfillment debe mostrar el ultimo checkpoint por orden.');
 
-$controllerSource = file_get_contents(dirname(__DIR__) . '/app/Controllers/DashboardController.php');
+// The dashboard markup, styles and scripts live in the view files.
+$controllerSource = implode("\n", array_map('file_get_contents', glob(dirname(__DIR__) . '/app/Views/Dashboard/*')));
 assertContainsText("document.querySelectorAll('[data-sort-table]')", (string) $controllerSource, 'El dashboard debe inicializar el ordenamiento local.');
 assertContainsText("direction === 1 ? '↑' : '↓'", (string) $controllerSource, 'El dashboard debe mostrar la direccion de ordenamiento activa.');
 assertContainsText('.scroll-table > table', (string) $controllerSource, 'En movil, el contenedor desplazable debe seguir siendo el unico contexto de scroll de la tabla.');

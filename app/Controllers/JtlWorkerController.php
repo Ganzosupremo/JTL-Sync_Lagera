@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Clients\JtlClient;
+use App\Support\Arr;
 use App\Support\Database;
 use App\Support\Logger;
 
-final class JtlWorkerController
+final class JtlWorkerController extends Controller
 {
     public function discover(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 
@@ -43,9 +43,8 @@ final class JtlWorkerController
 
     public function start(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 
@@ -78,7 +77,7 @@ final class JtlWorkerController
     /** @param array<string, mixed> $sync */
     private function workerSyncId(array $sync): string
     {
-        return $this->firstScalar($sync, [
+        return Arr::firstScalar($sync, [
             'identifier',
             'Identifier',
             'guid',
@@ -104,7 +103,7 @@ final class JtlWorkerController
     /** @param array<string, mixed> $sync */
     private function workerSyncName(array $sync): string
     {
-        return $this->firstScalar($sync, [
+        return Arr::firstScalar($sync, [
             'name',
             'Name',
             'syncName',
@@ -120,33 +119,6 @@ final class JtlWorkerController
         ]) ?? '';
     }
 
-    /** @param array<string, mixed> $data */
-    private function firstScalar(array $data, array $keys): ?string
-    {
-        foreach ($keys as $key) {
-            if (!array_key_exists($key, $data) || !is_scalar($data[$key])) {
-                continue;
-            }
-
-            $value = trim((string) $data[$key]);
-
-            if ($value !== '') {
-                return $value;
-            }
-        }
-
-        return null;
-    }
-
-    private function startSession(): void
-    {
-        if (PHP_SAPI === 'cli' || session_status() === PHP_SESSION_ACTIVE) {
-            return;
-        }
-
-        session_start();
-    }
-
     private function redirectWithNotice(string $message): void
     {
         $this->startSession();
@@ -154,18 +126,6 @@ final class JtlWorkerController
 
         header('Location: ' . $this->url('/') . '?tab=jtl-orders', true, 303);
         exit;
-    }
-
-    private function compactNotice(string $message): string
-    {
-        $limit = 1600;
-
-        if (strlen($message) <= $limit) {
-            return $message;
-        }
-
-        return substr($message, 0, $limit - 70)
-            . '... Detalle completo guardado en Logs.';
     }
 
     private function friendlyError(string $message): string
@@ -202,13 +162,5 @@ final class JtlWorkerController
         }
 
         return strlen($json) > 500 ? substr($json, 0, 497) . '...' : $json;
-    }
-
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        $base = $scriptDir === '/' ? '' : rtrim($scriptDir, '/');
-
-        return $base . '/' . ltrim($path, '/');
     }
 }

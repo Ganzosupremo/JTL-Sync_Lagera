@@ -11,13 +11,12 @@ use App\Support\Setting;
 use RuntimeException;
 use Throwable;
 
-final class UserInvitationController
+final class UserInvitationController extends Controller
 {
     public function create(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 
@@ -35,9 +34,8 @@ final class UserInvitationController
 
     public function revoke(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 
@@ -61,7 +59,7 @@ final class UserInvitationController
             return;
         }
 
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        if ($this->isPost()) {
             $this->acceptPost($token, $invitation);
             return;
         }
@@ -299,18 +297,5 @@ final class UserInvitationController
     {
         header('Location: ' . $this->url($path), true, 303);
         exit;
-    }
-
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        $base = $scriptDir === '/' ? '' : rtrim($scriptDir, '/');
-
-        return $base . '/' . ltrim($path, '/');
-    }
-
-    private function e(mixed $value): string
-    {
-        return htmlspecialchars((string) ($value ?? ''), ENT_QUOTES, 'UTF-8');
     }
 }

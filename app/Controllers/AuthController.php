@@ -7,7 +7,7 @@ namespace App\Controllers;
 use App\Models\LoginAttempt;
 use App\Support\Auth;
 
-final class AuthController
+final class AuthController extends Controller
 {
     public function login(): void
     {
@@ -17,7 +17,7 @@ final class AuthController
             $this->redirect('/');
         }
 
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        if ($this->isPost()) {
             $this->authenticate($auth);
             return;
         }
@@ -230,18 +230,5 @@ final class AuthController
     {
         header('Location: ' . $this->url($path), true, 303);
         exit;
-    }
-
-    private function url(string $path): string
-    {
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        $base = $scriptDir === '/' ? '' : rtrim($scriptDir, '/');
-
-        return $base . '/' . ltrim($path, '/');
-    }
-
-    private function e(mixed $value): string
-    {
-        return htmlspecialchars((string) ($value ?? ''), ENT_QUOTES, 'UTF-8');
     }
 }

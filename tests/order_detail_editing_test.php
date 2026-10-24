@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 require dirname(__DIR__) . '/app/bootstrap.php';
 
-use App\Controllers\DashboardController;
+use App\Views\Dashboard\OrderDetailView;
 use App\Controllers\OrderDraftController;
 
-$renderOrderDetail = new ReflectionMethod(DashboardController::class, 'renderOrderDetail');
+$renderOrderDetail = new ReflectionMethod(OrderDetailView::class, 'render');
 $renderOrderDetail->setAccessible(true);
 
 $editableDetail = [
@@ -41,7 +41,7 @@ $editableDetail = [
     ],
 ];
 
-$controller = new DashboardController();
+$controller = new OrderDetailView();
 $editableHtml = (string) $renderOrderDetail->invoke($controller, $editableDetail, null);
 
 assertContainsText('Esta orden se puede editar.', $editableHtml, 'Una orden pendiente debe explicar que se puede editar.');

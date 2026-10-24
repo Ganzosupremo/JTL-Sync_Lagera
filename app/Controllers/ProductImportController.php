@@ -7,13 +7,12 @@ namespace App\Controllers;
 use App\Services\ProductImportService;
 use Throwable;
 
-final class ProductImportController
+final class ProductImportController extends Controller
 {
     public function import(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 

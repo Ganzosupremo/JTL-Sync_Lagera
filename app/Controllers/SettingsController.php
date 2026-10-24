@@ -9,13 +9,12 @@ use App\Support\JtlScopeList;
 use App\Support\Setting;
 use App\Support\SettingsCatalog;
 
-final class SettingsController
+final class SettingsController extends Controller
 {
     public function save(): void
     {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo 'Method Not Allowed';
+        if (!$this->isPost()) {
+            $this->methodNotAllowed();
             return;
         }
 
