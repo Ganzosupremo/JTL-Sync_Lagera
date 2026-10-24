@@ -55,6 +55,13 @@ final class OrderSyncFailure
         $statement->execute();
     }
 
+    public function count(): int
+    {
+        $row = $this->connection()->query('SELECT COUNT(*) AS total FROM order_sync_failures')->fetch_assoc();
+
+        return (int) ($row['total'] ?? 0);
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function recent(int $limit = 50): array
     {

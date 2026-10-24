@@ -130,8 +130,8 @@ final class McpTools
                     'intervalo_minutos' => (int) Setting::get('AUTOMATION_INTERVAL_MINUTES', 360),
                     'ultima_corrida' => $states->get('automation'),
                 ],
-                'fallos_de_envio_abiertos' => count((new OrderSyncFailure())->recent(self::MAX_LIMIT)),
-                'fulfillments_pendientes' => count($mappings->pendingFulfillment(self::MAX_LIMIT)),
+                'fallos_de_envio_abiertos' => (new OrderSyncFailure())->count(),
+                'fulfillments_pendientes' => $mappings->countPendingFulfillment(),
                 'conexiones' => $this->connections(),
             ];
         });
