@@ -10,7 +10,7 @@ use App\Support\HttpClient;
  */
 final class FakeHttpClient extends HttpClient
 {
-    /** @var array<int, array{method: string, path: string, query: array<string, mixed>, json: mixed}> */
+    /** @var array<int, array{method: string, path: string, query: array<string, mixed>, json: mixed, headers: array<string, string>}> */
     public array $requests = [];
 
     /** @var array<int, array{method: string, path: string, query: array<string, mixed>|null, response: mixed}> */
@@ -42,6 +42,7 @@ final class FakeHttpClient extends HttpClient
             'path' => $path,
             'query' => is_array($options['query'] ?? null) ? $options['query'] : [],
             'json' => $options['json'] ?? null,
+            'headers' => is_array($options['headers'] ?? null) ? $options['headers'] : [],
         ];
         $this->requests[] = $request;
 

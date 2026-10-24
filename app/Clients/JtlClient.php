@@ -25,6 +25,9 @@ final class JtlClient
      */
     private const DELIVERY_NOTE_WORKFLOW_EVENT_SHIPPED = 3;
 
+    /** First API version that has the delivery note workflow route. */
+    private const DELIVERY_NOTE_WORKFLOW_API_VERSION = '1.1';
+
     private HttpClient $http;
 
     /** @var array<string, mixed> */
@@ -280,6 +283,11 @@ final class JtlClient
      * marketplaces rely on (via JTL-Worker) to consider an order fulfilled; it is separate from, and required in
      * addition to, adding the tracking package via createDeliveryNotePackages().
      *
+     * The route only exists from API version 1.1 on, while the rest of this app talks to JTL with api-version
+     * 1.0. JTL serves it either as the deprecated `/v1/...` path (which, like the Worker routes, must be sent
+     * without the api-version header) or as the unversioned path with `api-version: 1.1`. A 404/405 moves on
+     * to the next shape; the configured endpoint with the default headers is tried last.
+     *
      * @return array<string, mixed>
      */
     public function triggerDeliveryNoteShippedWorkflowEvent(string $deliveryNoteId): array
@@ -297,7 +305,45 @@ final class JtlClient
             throw new RuntimeException('JTL delivery note workflow trigger endpoint is not configured.');
         }
 
-        return $this->http->post($endpoint);
+        $versioned = preg_replace('#^((?:/api/eazybusiness)?)/(?:v[0-9]+/)?deliveryNotes/#i', '$1/v1/deliveryNotes/', $endpoint, 1) ?? $endpoint;
+        $unversioned = preg_replace('#^((?:/api/eazybusiness)?)/v[0-9]+/deliveryNotes/#i', '$1/deliveryNotes/', $endpoint, 1) ?? $endpoint;
+        $attempts = [
+            [$versioned, ['api-version' => ''], 'sin api-version'],
+            [$unversioned, ['api-version' => self::DELIVERY_NOTE_WORKFLOW_API_VERSION], 'api-version ' . self::DELIVERY_NOTE_WORKFLOW_API_VERSION],
+            [$endpoint, [], 'headers por defecto'],
+        ];
+        $errors = [];
+        $tried = [];
+        $lastException = null;
+
+        foreach ($attempts as [$path, $headers, $label]) {
+            $key = $path . '|' . json_encode($headers);
+
+            if (isset($tried[$key])) {
+                continue;
+            }
+
+            $tried[$key] = true;
+
+            try {
+                return $this->http->post($path, ['headers' => $headers]);
+            } catch (HttpException $exception) {
+                if (!in_array($exception->statusCode(), [404, 405], true)) {
+                    throw $exception;
+                }
+
+                $lastException = $exception;
+                $errors[] = '[' . $label . '] ' . $exception->getMessage();
+            }
+        }
+
+        throw new RuntimeException(
+            'JTL no encontro la ruta para marcar el delivery note ' . $deliveryNoteId . ' como Shipped con ninguna '
+            . 'variante (' . implode(' | ', $errors) . '). Puede que esta version de JTL-Wawi no tenga el endpoint '
+            . 'de workflow de delivery notes (API 1.1); si es asi, desactivalo con JTL_MARK_DELIVERY_NOTE_SHIPPED=false.',
+            404,
+            $lastException
+        );
     }
 
     /** @return array<int, array<string, mixed>> */
