@@ -13,6 +13,19 @@ use App\Views\View;
 /** The dashboard shell: header, tabs, notices and the tab view picked by the controller. */
 final class DashboardPage extends View
 {
+    /** @var array<string, string> */
+    private const TABS = [
+        'overview' => 'Resumen',
+        'jtl-orders' => 'Ordenes JTL',
+        'fulfillment' => 'Fulfillment',
+        'order-corrections' => 'Correccion de ordenes',
+        'packiyo-customers' => 'Clientes Packiyo',
+        'customer-mappings' => 'Mapeos',
+        'products' => 'Productos',
+        'settings' => 'Ajustes',
+        'logs' => 'Logs',
+    ];
+
     /**
      * @param array<string, mixed> $summary
      * @param array<string, mixed>|null $registration
@@ -97,26 +110,47 @@ final class DashboardPage extends View
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Lagera JTL Sync</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
     <style>
 <?= $this->asset('dashboard.css') ?>
     </style>
 </head>
 <body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand">
+            <span class="brand-mark" aria-hidden="true">L</span>
+            <div>
+                <strong>Lagera JTL Sync</strong>
+                <span>JTL -> Packiyo</span>
+            </div>
+        </div>
+
+        <nav class="tabs" aria-label="Dashboard">
+            <?php foreach (self::TABS as $tabKey => $tabLabel): ?>
+                <a class="tab <?= $tab === $tabKey ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl($tabKey)) ?>"<?= $tab === $tabKey ? ' aria-current="page"' : '' ?>><?= $this->e($tabLabel) ?></a>
+            <?php endforeach; ?>
+        </nav>
+
+        <?php if ($auth->required()): ?>
+            <form class="sidebar-footer" action="<?= $this->e($this->url('/logout')) ?>" method="post">
+                <button class="button secondary" type="submit">Cerrar sesion</button>
+            </form>
+        <?php endif; ?>
+    </aside>
+
     <main class="shell">
         <header>
             <div>
-                <h1>Lagera JTL Sync</h1>
-                <p class="subtitle">JTL -> Packiyo</p>
+                <h1><?= $this->e(self::TABS[$tab] ?? 'Lagera JTL Sync') ?></h1>
+                <p class="subtitle">Lagera JTL Sync · JTL -> Packiyo</p>
             </div>
             <div class="actions">
                 <form action="<?= $this->e($this->url('/automation/manual')) ?>" method="post">
                     <button class="button" type="submit">Sincronizar ahora</button>
                 </form>
-                <?php if ($auth->required()): ?>
-                    <form action="<?= $this->e($this->url('/logout')) ?>" method="post">
-                        <button class="button secondary" type="submit">Cerrar sesion</button>
-                    </form>
-                <?php endif; ?>
             </div>
         </header>
 
@@ -131,7 +165,7 @@ final class DashboardPage extends View
         <div class="summary">
             <div class="metric">
                 <span>Ultima sincronizacion</span>
-                <strong><?= $this->e($summary['last_sync']) ?></strong>
+                <strong class="mono"><?= $this->e($summary['last_sync']) ?></strong>
             </div>
             <div class="metric">
                 <span>Pedidos hoy</span>
@@ -151,22 +185,10 @@ final class DashboardPage extends View
             </div>
             <div class="metric">
                 <span>Proximo auto sync</span>
-                <strong><?= $this->e($automationNextRun) ?></strong>
+                <strong class="mono"><?= $this->e($automationNextRun) ?></strong>
                 <div class="metric-note"><?= $this->e($automationLastSummary) ?></div>
             </div>
         </div>
-
-        <nav class="tabs" aria-label="Dashboard">
-            <a class="tab <?= $tab === 'overview' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('overview')) ?>">Resumen</a>
-            <a class="tab <?= $tab === 'jtl-orders' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('jtl-orders')) ?>">Ordenes JTL</a>
-            <a class="tab <?= $tab === 'fulfillment' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('fulfillment')) ?>">Fulfillment</a>
-            <a class="tab <?= $tab === 'order-corrections' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('order-corrections')) ?>">Correccion de ordenes</a>
-            <a class="tab <?= $tab === 'packiyo-customers' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('packiyo-customers')) ?>">Clientes Packiyo</a>
-            <a class="tab <?= $tab === 'customer-mappings' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('customer-mappings')) ?>">Mapeos</a>
-            <a class="tab <?= $tab === 'products' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('products')) ?>">Productos</a>
-            <a class="tab <?= $tab === 'settings' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('settings')) ?>">Ajustes</a>
-            <a class="tab <?= $tab === 'logs' ? 'active' : '' ?>" href="<?= $this->e($this->tabUrl('logs')) ?>">Logs</a>
-        </nav>
 
         <div class="grid">
             <?php if ($tab === 'overview'): ?>
@@ -230,6 +252,7 @@ final class DashboardPage extends View
             <?php endif; ?>
         </div>
     </main>
+</div>
     <script>
 <?= $this->asset('dashboard.js') ?>
     </script>

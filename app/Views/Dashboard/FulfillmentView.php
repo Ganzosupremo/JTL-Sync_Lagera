@@ -83,11 +83,11 @@ final class FulfillmentView extends View
                             <tbody>
                                 <?php foreach ($rows as $row): ?>
                                     <tr>
-                                        <td data-sort-value="<?= $this->e(($row['jtl_order_number'] ?? '') ?: ($row['jtl_order_id'] ?? '')) ?>">
+                                        <td class="mono" data-sort-value="<?= $this->e(($row['jtl_order_number'] ?? '') ?: ($row['jtl_order_id'] ?? '')) ?>">
                                             <strong><?= $this->e(($row['jtl_order_number'] ?? '') ?: ($row['jtl_order_id'] ?? '-')) ?></strong>
                                             <div class="muted">ID <?= $this->e($row['jtl_order_id'] ?? '-') ?></div>
                                         </td>
-                                        <td data-sort-value="<?= $this->e(($row['packiyo_order_number'] ?? '') ?: ($row['packiyo_order_id'] ?? '')) ?>">
+                                        <td class="mono" data-sort-value="<?= $this->e(($row['packiyo_order_number'] ?? '') ?: ($row['packiyo_order_id'] ?? '')) ?>">
                                             <strong><?= $this->e(($row['packiyo_order_number'] ?? '') ?: ($row['packiyo_order_id'] ?? '-')) ?></strong>
                                             <?php if (($row['packiyo_order_number'] ?? '') !== '' && ($row['packiyo_order_id'] ?? '') !== ''): ?>
                                                 <div class="muted">ID <?= $this->e($row['packiyo_order_id']) ?></div>
@@ -130,7 +130,7 @@ final class FulfillmentView extends View
                                                 <div class="muted"><?= $this->e($row['last_error']) ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td data-sort-value="<?= $this->e($row['synced_at'] ?? '') ?>">
+                                        <td class="mono" data-sort-value="<?= $this->e($row['synced_at'] ?? '') ?>">
                                             <?= $this->e($row['synced_at'] ?? '-') ?>
                                             <?php if (($row['fulfillment_last_checked_at'] ?? '') !== ''): ?>
                                                 <div class="muted">Revisado <?= $this->e($row['fulfillment_last_checked_at']) ?></div>

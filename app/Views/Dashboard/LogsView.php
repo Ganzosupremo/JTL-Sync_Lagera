@@ -31,7 +31,7 @@ final class LogsView extends View
                         <tbody>
                             <?php foreach ($logs as $log): ?>
                                 <tr>
-                                    <td><?= $this->e($log['created_at']) ?></td>
+                                    <td class="mono"><?= $this->e($log['created_at']) ?></td>
                                     <td class="level-<?= $this->e($log['level']) ?>"><?= $this->e($log['level']) ?></td>
                                     <td><?= $this->e($log['message']) ?></td>
                                 </tr>

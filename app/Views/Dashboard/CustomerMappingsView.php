@@ -67,8 +67,8 @@ final class CustomerMappingsView extends View
                                         <td><strong><?= $this->e($source['source_value']) ?></strong></td>
                                         <td><?= $this->e($source['source_path'] ?? '-') ?></td>
                                         <td><?= $this->e($source['order_count']) ?></td>
-                                        <td><?= $this->e(($source['sample_order_number'] ?? '') ?: ($source['sample_order_id'] ?? '-')) ?></td>
-                                        <td><?= $this->e($source['last_seen_at']) ?></td>
+                                        <td class="mono"><?= $this->e(($source['sample_order_number'] ?? '') ?: ($source['sample_order_id'] ?? '-')) ?></td>
+                                        <td class="mono"><?= $this->e($source['last_seen_at']) ?></td>
                                         <td>
                                             <?php if (($source['sample_order_id'] ?? '') !== ''): ?>
                                                 <form class="inline-form" action="<?= $this->e($this->url('/sync/order')) ?>" method="post">

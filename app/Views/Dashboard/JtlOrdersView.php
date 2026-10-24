@@ -91,14 +91,14 @@ final class JtlOrdersView extends View
                                         data-jtl-mapped-customer="<?= $this->e($order['packiyo_customer_id'] ?? '') ?>"
                                         data-jtl-mapped="<?= !empty($order['mapped']) ? '1' : '0' ?>"
                                     >
-                                        <td data-sort-value="<?= $this->e(($order['number'] ?? '') ?: ($order['id'] ?? '')) ?>">
+                                        <td class="mono" data-sort-value="<?= $this->e(($order['number'] ?? '') ?: ($order['id'] ?? '')) ?>">
                                             <strong><?= $this->e(($order['number'] ?? '') ?: ($order['id'] ?? '-')) ?></strong>
                                             <div class="muted">ID <?= $this->e(($order['id'] ?? '') ?: '-') ?></div>
                                             <?php if (($order['marketplace_number'] ?? '') !== ''): ?>
                                                 <div class="muted">Marketplace <?= $this->e($order['marketplace_number']) ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td data-sort-value="<?= $this->e($order['ordered_at'] ?? '') ?>"><?= $this->e($order['ordered_at'] ?? '-') ?></td>
+                                        <td class="mono" data-sort-value="<?= $this->e($order['ordered_at'] ?? '') ?>"><?= $this->e($order['ordered_at'] ?? '-') ?></td>
                                         <td data-sort-value="<?= $this->e($order['contact'] ?? '') ?>"><?= $this->e($order['contact'] ?? '-') ?></td>
                                         <td data-sort-value="<?= $this->e($order['source'] ?? '') ?>">
                                             <strong><?= $this->e($order['source'] ?? '-') ?></strong>
