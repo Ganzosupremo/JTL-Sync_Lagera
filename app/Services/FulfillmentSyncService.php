@@ -18,6 +18,9 @@ use Throwable;
 final class FulfillmentSyncService
 {
     /** Wall-clock deadline (microtime(true) seconds) for the current sync() call, or null when unbounded. */
+    /** Attempts at the Shipped trigger while JTL keeps answering 404 (see triggerShippedWithRetry). */
+    private const SHIPPED_NOT_FOUND_ATTEMPTS = 3;
+
     private ?float $deadline = null;
 
     public function __construct(
@@ -380,7 +383,7 @@ final class FulfillmentSyncService
 
         foreach ($this->jtlClient()->getDeliveryNotePackages($deliveryNoteId) as $package) {
             if ($this->stringValue($package, ['TrackingID', 'trackingID', 'trackingId', 'tracking_number']) === $shipment['tracking_number']) {
-                $shippedError = $this->markDeliveryNoteShipped($deliveryNoteId, $orderLabel);
+                $shippedError = $this->markDeliveryNoteShipped($deliveryNoteId, $jtlOrderId, $jtlOrderNumber, $orderLabel);
                 $this->saveFulfillment(
                     $mapping,
                     $shipment,
@@ -399,7 +402,7 @@ final class FulfillmentSyncService
             'Comment' => $this->shipmentComment($shipment),
         ]]);
 
-        $shippedError = $this->markDeliveryNoteShipped($deliveryNoteId, $orderLabel);
+        $shippedError = $this->markDeliveryNoteShipped($deliveryNoteId, $jtlOrderId, $jtlOrderNumber, $orderLabel);
 
         $createdPackage = $this->firstDeliveryNote($this->collection($response));
         $this->saveFulfillment(
@@ -426,17 +429,21 @@ final class FulfillmentSyncService
      * @return string|null null if the Shipped event was triggered (or the feature is intentionally disabled),
      *                      otherwise the friendly error message to persist and retry on the next sync run.
      */
-    private function markDeliveryNoteShipped(string $deliveryNoteId, string $orderLabel): ?string
-    {
+    private function markDeliveryNoteShipped(
+        string $deliveryNoteId,
+        string $jtlOrderId,
+        ?string $jtlOrderNumber,
+        string $orderLabel
+    ): ?string {
         if (!$this->jtlClient()->markDeliveryNoteShippedEnabled()) {
             return null;
         }
 
         try {
-            $this->jtlClient()->triggerDeliveryNoteShippedWorkflowEvent($deliveryNoteId);
+            $shippedNoteId = $this->triggerShippedWithRetry($deliveryNoteId, $jtlOrderId, $jtlOrderNumber, $orderLabel);
             $this->log()->info(
                 'fulfillment_sync',
-                'JTL delivery note ' . $deliveryNoteId . ' de la orden ' . $orderLabel
+                'JTL delivery note ' . $shippedNoteId . ' de la orden ' . $orderLabel
                 . ' fue marcado como Shipped para que el marketplace lo vea como fulfilled.'
             );
 
@@ -454,6 +461,58 @@ final class FulfillmentSyncService
             );
 
             return $message;
+        }
+    }
+
+    /**
+     * JTL sometimes answers the Shipped trigger with a bare 404 (no body) right after the tracking package was
+     * added, although the same call succeeds moments later. A 404 is therefore retried a few times after a short
+     * pause, and between attempts the order's delivery note is looked up again so that a note JTL replaced in the
+     * meantime is targeted by its current id. Other errors are not retried here.
+     *
+     * @return string the delivery note id the Shipped event was triggered for
+     */
+    private function triggerShippedWithRetry(
+        string $deliveryNoteId,
+        string $jtlOrderId,
+        ?string $jtlOrderNumber,
+        string $orderLabel
+    ): string {
+        $delaySeconds = $this->jtlClient()->deliveryNoteCreateRetryDelaySeconds();
+
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                $this->jtlClient()->triggerDeliveryNoteShippedWorkflowEvent($deliveryNoteId);
+
+                return $deliveryNoteId;
+            } catch (HttpException $exception) {
+                if ($exception->statusCode() !== 404 || $attempt >= self::SHIPPED_NOT_FOUND_ATTEMPTS || $this->timeBudgetExceeded()) {
+                    throw $exception;
+                }
+            }
+
+            if ($delaySeconds > 0) {
+                sleep($delaySeconds);
+            }
+
+            $currentNote = $this->findDeliveryNote($jtlOrderId, $jtlOrderNumber);
+            $currentNoteId = $currentNote !== null ? $this->deliveryNoteId($currentNote) : null;
+
+            if ($currentNoteId === null) {
+                throw new RuntimeException(
+                    'JTL ya no devuelve ningun delivery note para la orden ' . $orderLabel
+                    . ' (el delivery note ' . $deliveryNoteId . ' respondio 404 al marcarlo como Shipped).'
+                );
+            }
+
+            if ($currentNoteId !== $deliveryNoteId) {
+                $this->log()->info(
+                    'fulfillment_sync',
+                    'El delivery note de la orden ' . $orderLabel . ' cambio de ' . $deliveryNoteId
+                    . ' a ' . $currentNoteId . ' en JTL; se marca como Shipped el actual.'
+                );
+                $deliveryNoteId = $currentNoteId;
+            }
         }
     }
 
@@ -879,6 +938,16 @@ final class FulfillmentSyncService
                 . 'events de JTL" para ver los IDs y nombres reales, y corrige el valor con el ID del evento manual '
                 . 'que crea el Lieferschein. Si ese evento todavia no existe, hay que crearlo primero en el '
                 . 'Workflow-Designer de JTL-Wawi.';
+        }
+
+        if (
+            $exception instanceof HttpException
+            && $exception->statusCode() === 404
+            && str_contains($exception->url(), '/workflow/')
+        ) {
+            return $exception->getMessage()
+                . ' (JTL siguio respondiendo 404 tras reintentar, aunque el delivery note '
+                . 'sigue asignado a la orden; suele ser temporal en JTL y se reintenta en la proxima corrida.)';
         }
 
         return $exception->getMessage();
