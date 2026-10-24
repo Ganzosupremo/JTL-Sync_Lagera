@@ -11,4 +11,5 @@ return [
     'interval_minutes' => (int) Setting::get('AUTOMATION_INTERVAL_MINUTES', 360),
     'sync_customers' => Setting::get('AUTOMATION_SYNC_CUSTOMERS', false),
     'fulfillment_limit' => (int) Setting::get('AUTOMATION_FULFILLMENT_LIMIT', 200),
+    'log_retention_days' => (int) Setting::get('LOG_RETENTION_DAYS', 30),
 ];

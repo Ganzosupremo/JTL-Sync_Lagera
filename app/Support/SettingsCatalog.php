@@ -45,6 +45,7 @@ final class SettingsCatalog
                     self::number('AUTOMATION_INTERVAL_MINUTES', 'Intervalo automatico en minutos', '360'),
                     self::boolean('AUTOMATION_SYNC_CUSTOMERS', 'Actualizar clientes en cada corrida', false),
                     self::number('AUTOMATION_FULFILLMENT_LIMIT', 'Limite de fulfillments por corrida', '200'),
+                    self::number('LOG_RETENTION_DAYS', 'Borrar logs con mas de N dias (0 = guardar todo)', '30'),
                 ],
             ],
             [
