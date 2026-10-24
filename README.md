@@ -252,6 +252,19 @@ Tras 5 intentos fallidos en 15 minutos, ese usuario/email queda bloqueado 15 min
 
 Si ocurre un error inesperado, el navegador solo ve una referencia corta; el detalle queda en la pestana Logs con esa referencia. Con `APP_DEBUG=true` se muestra el mensaje completo.
 
+### Archivo .env en el hosting
+
+La app lee el `.env` de su carpeta raiz (la que contiene `app/` y `public/`), sea cual sea el document root. Si el `.env` vive en otra carpeta, indica la ruta con `APP_ENV_FILE` (por ejemplo `SetEnv APP_ENV_FILE /home/usuario/repositories/JTL-Sync_Lagera/.env` en el `.htaccess`). Si no se encuentra, la app sigue sin avisar y usa valores por defecto (MySQL `root@127.0.0.1`), asi que el primer sintoma suele ser un error de conexion a MySQL.
+
+Para comprobarlo desde SSH o la Terminal de cPanel:
+
+```bash
+cd ~/repositories/JTL-Sync_Lagera
+php scripts/check_env.php
+```
+
+Muestra que `.env` se usa, sus permisos, que claves se leyeron (nunca los valores), si `APP_KEY` es valida y si conecta a MySQL. Los ajustes guardados en la tab Ajustes (MySQL) tienen prioridad sobre el `.env`; `DB_*` y `APP_KEY` solo se leen del `.env`.
+
 ### Cifrado de secretos
 
 Con `APP_KEY` definido, las API keys y tokens (`PACKIYO_API_KEY`, `AUTOMATION_TOKEN`, `JTL_CF_ACCESS_CLIENT_SECRET`, `JTL_CHALLENGE_CODE` y el token de JTL en `jtl_api_credentials`) se guardan cifrados en MySQL con libsodium. Los valores antiguos en texto plano se cifran solos la primera vez que la app los lee.
