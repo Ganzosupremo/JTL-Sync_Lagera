@@ -15,7 +15,8 @@ final class OrderMapping
                 WHERE fs.jtl_order_id = order_mappings.jtl_order_id
                     AND fs.status IN (\'synced\', \'already_present\')
                     AND fs.jtl_delivery_note_id IS NOT NULL
-            )';
+            )
+            AND COALESCE(order_mappings.fulfillment_status, \'\') <> \'jtl_cancelled\'';
 
     public function __construct(private readonly ?mysqli $db = null)
     {

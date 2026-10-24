@@ -153,6 +153,21 @@ final class JtlClient
         return $this->http->get($this->endpoint('order_endpoint', $id));
     }
 
+    /** JTL keeps cancelled sales orders (IsCancelled=true); they never get a delivery note. */
+    public function isOrderCancelled(string $id): bool
+    {
+        $order = $this->getOrder($id);
+        $order = is_array($order['data'] ?? null) ? $order['data'] : (is_array($order['Data'] ?? null) ? $order['Data'] : $order);
+
+        foreach (['IsCancelled', 'isCancelled'] as $key) {
+            if (array_key_exists($key, $order)) {
+                return filter_var($order[$key], FILTER_VALIDATE_BOOLEAN);
+            }
+        }
+
+        return false;
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function getOrderItems(string $id): array
     {
