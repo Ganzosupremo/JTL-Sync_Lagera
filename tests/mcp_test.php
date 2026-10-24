@@ -79,6 +79,14 @@ assertSame(2, count($rows), 'ver_logs respeta el limite.');
 $status = json_decode(mcpCall($server, 'tools/call', ['name' => 'estado_general'])['result']['content'][0]['text'], true);
 assertSame(2, $status['errores_hoy'], 'estado_general cuenta los errores de hoy.');
 
+$failures = new App\Models\OrderSyncFailure();
+for ($i = 0; $i < 205; $i++) {
+    $failures->record('jtl-' . $i, null, 'fallo');
+}
+$status = json_decode(mcpCall($server, 'tools/call', ['name' => 'estado_general'])['result']['content'][0]['text'], true);
+assertSame(205, $status['fallos_de_envio_abiertos'], 'estado_general cuenta todos los fallos, sin tope.');
+assertSame(0, $status['fulfillments_pendientes'], 'Sin ordenes enviadas no hay fulfillments pendientes.');
+
 $detail = mcpCall($server, 'tools/call', ['name' => 'detalle_orden', 'arguments' => []])['result'];
 assertSame(true, $detail['isError'], 'Un argumento obligatorio que falta vuelve como error de la herramienta.');
 

@@ -9,6 +9,14 @@ use mysqli;
 
 final class OrderMapping
 {
+    /** Orders whose tracking has not yet reached a JTL delivery note; see pendingFulfillment(). */
+    private const FULFILLMENT_NOT_DONE = 'NOT EXISTS (
+                SELECT 1 FROM fulfillment_syncs fs
+                WHERE fs.jtl_order_id = order_mappings.jtl_order_id
+                    AND fs.status IN (\'synced\', \'already_present\')
+                    AND fs.jtl_delivery_note_id IS NOT NULL
+            )';
+
     public function __construct(private readonly ?mysqli $db = null)
     {
     }
@@ -220,12 +228,7 @@ final class OrderMapping
     public function pendingFulfillment(int $limit = 500, ?string $packiyoCustomerId = null): array
     {
         $packiyoCustomerId = trim((string) $packiyoCustomerId);
-        $notDone = 'NOT EXISTS (
-                SELECT 1 FROM fulfillment_syncs fs
-                WHERE fs.jtl_order_id = order_mappings.jtl_order_id
-                    AND fs.status IN (\'synced\', \'already_present\')
-                    AND fs.jtl_delivery_note_id IS NOT NULL
-            )';
+        $notDone = self::FULFILLMENT_NOT_DONE;
 
         if ($packiyoCustomerId !== '') {
             $statement = $this->connection()->prepare(
@@ -261,6 +264,13 @@ final class OrderMapping
         $statement->execute();
 
         return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
+    public function countPendingFulfillment(): int
+    {
+        $row = $this->connection()->query('SELECT COUNT(*) AS total FROM order_mappings WHERE ' . self::FULFILLMENT_NOT_DONE)->fetch_assoc();
+
+        return (int) ($row['total'] ?? 0);
     }
 
     /** @return array<int, array<string, mixed>> */
