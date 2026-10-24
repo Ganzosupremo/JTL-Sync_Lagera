@@ -55,6 +55,16 @@ final class OrderSyncFailure
         $statement->execute();
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function recent(int $limit = 50): array
+    {
+        $statement = $this->connection()->prepare('SELECT * FROM order_sync_failures ORDER BY last_failed_at DESC, id DESC LIMIT ?');
+        $statement->bind_param('i', $limit);
+        $statement->execute();
+
+        return $statement->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
     /**
      * @param array<int, string> $jtlOrderIds
      * @return array<string, array<string, mixed>>

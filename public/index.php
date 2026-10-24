@@ -10,6 +10,8 @@ use App\Controllers\JtlOrderSourceController;
 use App\Controllers\JtlRegistrationController;
 use App\Controllers\JtlWorkerController;
 use App\Controllers\JtlWorkflowController;
+use App\Controllers\McpController;
+use App\Controllers\OAuthController;
 use App\Controllers\PackiyoCustomerController;
 use App\Controllers\PackiyoProductCatalogController;
 use App\Controllers\PackiyoCustomerMappingController;
@@ -37,7 +39,21 @@ if ($scriptDir !== '/' && str_starts_with($requestPath, $scriptDir)) {
 }
 
 $path = rtrim($requestPath, '/') ?: '/';
-$publicPaths = ['/login', '/logout', '/invite', '/automation/run', '/automation/tick'];
+// /mcp and the OAuth endpoints authenticate with their own tokens. /oauth/authorize is not here on
+// purpose: approving a connection needs an admin logged into the panel.
+$apiPaths = [
+    '/mcp',
+    '/oauth/register',
+    '/oauth/token',
+    // Default endpoints older MCP clients try when they find no discovery document.
+    '/register',
+    '/token',
+    '/.well-known/oauth-protected-resource',
+    '/.well-known/oauth-protected-resource/mcp',
+    '/.well-known/oauth-authorization-server',
+    '/.well-known/openid-configuration',
+];
+$publicPaths = ['/login', '/logout', '/invite', '/automation/run', '/automation/tick', ...$apiPaths];
 $loginTarget = $path;
 $queryString = $_SERVER['QUERY_STRING'] ?? '';
 
@@ -51,8 +67,8 @@ if (!in_array($path, $publicPaths, true)) {
     (new AuthController())->requireLogin($loginTarget);
 }
 
-// The cron endpoints authenticate with AUTOMATION_TOKEN instead of a browser session.
-$csrfExemptPaths = ['/automation/run', '/automation/tick'];
+// The cron and MCP endpoints authenticate with a token instead of a browser session.
+$csrfExemptPaths = ['/automation/run', '/automation/tick', ...$apiPaths];
 $auth = new Auth(); // Also starts the session that holds the CSRF token.
 
 // Operators can sync and fix orders; only admins change settings, users and the JTL registration.
@@ -130,6 +146,14 @@ try {
         '/users/invite' => (new UserInvitationController())->create(),
         '/users/invite/revoke' => (new UserInvitationController())->revoke(),
         '/health' => (new SyncController())->health(),
+        '/mcp' => (new McpController())->handle(),
+        '/oauth/register', '/register' => (new OAuthController())->register(),
+        '/oauth/token', '/token' => (new OAuthController())->token(),
+        '/oauth/authorize', '/authorize' => (new OAuthController())->authorize(),
+        '/.well-known/oauth-protected-resource',
+        '/.well-known/oauth-protected-resource/mcp' => (new OAuthController())->protectedResource(),
+        '/.well-known/oauth-authorization-server',
+        '/.well-known/openid-configuration' => (new OAuthController())->authorizationServer(),
         default => notFound(),
     };
 } catch (Throwable $exception) {

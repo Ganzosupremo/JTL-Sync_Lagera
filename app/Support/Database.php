@@ -540,6 +540,36 @@ final class Database
                 UNIQUE KEY order_sync_failures_jtl_order_unique (jtl_order_id)
             )"
         );
+
+        // OAuth for the MCP endpoint: clients register themselves, admins approve them in the panel.
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS oauth_clients (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                client_id VARCHAR(64) NOT NULL,
+                client_name VARCHAR(200) NULL,
+                redirect_uris TEXT NOT NULL,
+                created_at DATETIME NOT NULL,
+                UNIQUE KEY oauth_clients_client_id_unique (client_id)
+            )"
+        );
+
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS oauth_tokens (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                token_hash CHAR(64) NOT NULL,
+                kind VARCHAR(20) NOT NULL,
+                client_id VARCHAR(64) NOT NULL,
+                user_id INT NULL,
+                user_label VARCHAR(190) NOT NULL,
+                redirect_uri TEXT NULL,
+                code_challenge VARCHAR(128) NULL,
+                expires_at DATETIME NOT NULL,
+                used_at DATETIME NULL,
+                created_at DATETIME NOT NULL,
+                UNIQUE KEY oauth_tokens_hash_unique (token_hash),
+                KEY oauth_tokens_expires_index (expires_at)
+            )"
+        );
     }
 
     private static function mysqlConnection(): mysqli

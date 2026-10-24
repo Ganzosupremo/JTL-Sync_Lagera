@@ -161,10 +161,20 @@ final class OrderMapping
     }
 
     /** @return array<int, array<string, mixed>> */
-    public function recent(int $limit = 50): array
+    public function recent(int $limit = 50, ?string $packiyoCustomerId = null): array
     {
-        $statement = $this->connection()->prepare('SELECT * FROM order_mappings ORDER BY synced_at DESC, id DESC LIMIT ?');
-        $statement->bind_param('i', $limit);
+        $packiyoCustomerId = trim((string) $packiyoCustomerId);
+
+        if ($packiyoCustomerId !== '') {
+            $statement = $this->connection()->prepare(
+                'SELECT * FROM order_mappings WHERE packiyo_customer_id = ? ORDER BY synced_at DESC, id DESC LIMIT ?'
+            );
+            $statement->bind_param('si', $packiyoCustomerId, $limit);
+        } else {
+            $statement = $this->connection()->prepare('SELECT * FROM order_mappings ORDER BY synced_at DESC, id DESC LIMIT ?');
+            $statement->bind_param('i', $limit);
+        }
+
         $statement->execute();
 
         return $statement->get_result()->fetch_all(MYSQLI_ASSOC);

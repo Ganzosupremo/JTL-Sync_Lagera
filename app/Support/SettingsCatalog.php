@@ -49,6 +49,15 @@ final class SettingsCatalog
                 ],
             ],
             [
+                'title' => 'MCP (conectar Claude)',
+                'description' => 'Endpoint /mcp para que Claude consulte logs y ordenes y ejecute sincronizaciones. Claude se conecta con OAuth (login de un admin); el token fijo sirve para Claude Code o scripts.',
+                'fields' => [
+                    self::boolean('MCP_ENABLED', 'MCP activo', true),
+                    self::boolean('MCP_ALLOW_WRITES', 'Permitir acciones (sincronizar) por MCP', true),
+                    self::secret('MCP_TOKEN', 'Token fijo (cabecera Authorization: Bearer)', ''),
+                ],
+            ],
+            [
                 'title' => 'JTL-Wawi API',
                 'description' => 'Conexion, endpoints y scopes usados para leer ordenes y enviar tracking.',
                 'fields' => [

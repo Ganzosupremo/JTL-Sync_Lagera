@@ -283,6 +283,21 @@ Cron antiguo, solo ordenes JTL -> Packiyo:
 */1 * * * * php /ruta/al/proyecto/cron/sync_orders.php
 ```
 
+## Conectar Claude (MCP)
+
+La app expone un servidor MCP en `/mcp` (Streamable HTTP, sin estado) para que Claude consulte el panel y ejecute sincronizaciones.
+
+**Herramientas de lectura:** `estado_general`, `estado_conexiones`, `ver_logs` (filtros nivel, origen, texto), `ordenes_sincronizadas`, `fallos_de_envio`, `detalle_orden`, `fulfillment_pendiente`, `fulfillment_reciente`.
+
+**Herramientas de escritura:** `sincronizar_ordenes`, `sincronizar_orden`, `sincronizar_fulfillment`, `ejecutar_automatizacion`. Cada llamada queda en Logs con origen `mcp` y el usuario que la hizo. Se pueden desactivar con `MCP_ALLOW_WRITES=false`; todo el endpoint con `MCP_ENABLED=false`. Ajustes, usuarios, registro JTL y correcciones masivas no estan expuestos.
+
+**Autenticacion:**
+
+- **claude.ai (conector personalizado):** agrega `https://TU-DOMINIO/mcp` como conector. Claude se registra solo (OAuth con registro dinamico y PKCE), te manda a `/oauth/authorize`, inicias sesion con un usuario **admin** y apruebas. Los tokens duran 1 hora y se renuevan solos (refresh de 30 dias). Si el usuario se desactiva o deja de ser admin, sus tokens dejan de servir al instante. Requiere login activo con al menos un usuario.
+- **Claude Code / scripts:** define `MCP_TOKEN` (Ajustes > MCP) y manda `Authorization: Bearer <token>`, por ejemplo `claude mcp add --transport http lagera https://TU-DOMINIO/mcp --header "Authorization: Bearer <token>"`.
+
+Define `APP_BASE_URL` con la URL publica (https) para que los documentos de descubrimiento (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`) anuncien las URLs correctas. `public/.htaccess` copia la cabecera `Authorization`, que Apache en hosting compartido suele descartar.
+
 ## Endpoints
 
 - `GET /` dashboard.
