@@ -112,6 +112,18 @@ final class FulfillmentSyncService
                     try {
                         $this->sendShipmentToJtl($mapping, $shipment);
                         $summary['synced']++;
+                    } catch (JtlOrderCancelledDuringFulfillmentException $exception) {
+                        // A cancelled JTL order never gets a delivery note, so retrying it every run only adds
+                        // noise. It is recorded once as `jtl_cancelled` and left out of later runs.
+                        $summary['skipped']++;
+                        $this->log()->info('fulfillment_sync', $exception->getMessage());
+                        $this->saveFailedAttempt($mapping, $shipment, $exception->getMessage(), 'jtl_cancelled');
+                        $this->orderModel()->markFulfillmentChecked(
+                            (string) $mapping['jtl_order_id'],
+                            'jtl_cancelled',
+                            $exception->getMessage()
+                        );
+                        continue 2;
                     } catch (Throwable $exception) {
                         if ($this->jtlClient()->isReachabilityException($exception)) {
                             throw new JtlUnavailableDuringFulfillmentException(
@@ -520,8 +532,19 @@ final class FulfillmentSyncService
     {
         $deliveryNote = $this->findDeliveryNote($jtlOrderId, $jtlOrderNumber);
 
-        if ($deliveryNote !== null || !$this->jtlClient()->autoCreateDeliveryNoteEnabled()) {
+        if ($deliveryNote !== null) {
             return $deliveryNote;
+        }
+
+        if ($this->jtlClient()->isOrderCancelled($jtlOrderId)) {
+            throw new JtlOrderCancelledDuringFulfillmentException(
+                'La orden ' . ($jtlOrderNumber !== null && $jtlOrderNumber !== '' ? $jtlOrderNumber : $jtlOrderId)
+                . ' esta cancelada en JTL; no se envia el tracking y se deja de revisar.'
+            );
+        }
+
+        if (!$this->jtlClient()->autoCreateDeliveryNoteEnabled()) {
+            return null;
         }
 
         $workflowEventId = $this->jtlClient()->deliveryNoteWorkflowEventId();
@@ -623,7 +646,7 @@ final class FulfillmentSyncService
      * @param array<string, mixed> $mapping
      * @param array<string, string> $shipment
      */
-    private function saveFailedAttempt(array $mapping, array $shipment, string $lastError): void
+    private function saveFailedAttempt(array $mapping, array $shipment, string $lastError, string $status = 'failed'): void
     {
         $this->fulfillmentModel()->upsert([
             'jtl_order_id' => (string) $mapping['jtl_order_id'],
@@ -639,7 +662,7 @@ final class FulfillmentSyncService
             'shipped_at' => $this->mysqlDate($shipment['shipped_at']),
             'jtl_delivery_note_id' => null,
             'jtl_package_id' => null,
-            'status' => 'failed',
+            'status' => $status,
             'last_error' => $lastError,
             'synced_at' => date('Y-m-d H:i:s'),
         ]);
@@ -994,5 +1017,9 @@ final class JtlUnavailableDuringFulfillmentException extends RuntimeException
 }
 
 final class PackiyoOrderNotFoundDuringFulfillmentException extends RuntimeException
+{
+}
+
+final class JtlOrderCancelledDuringFulfillmentException extends RuntimeException
 {
 }

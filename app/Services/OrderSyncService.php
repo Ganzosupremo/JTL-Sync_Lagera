@@ -75,6 +75,7 @@ final class OrderSyncService
             'requires_review' => 0,
             'previously_ignored' => 0,
             'too_old' => 0,
+            'cancelled' => 0,
             'jtl_unreachable' => false,
             'locked' => false,
             'message' => '',
@@ -157,7 +158,7 @@ final class OrderSyncService
         $this->log()->info(
             'order_sync',
             $summary['message'] = sprintf(
-                'Order sync finished. jtl_returned=%d total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d requires_review=%d previously_ignored=%d too_old=%d',
+                'Order sync finished. jtl_returned=%d total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d requires_review=%d previously_ignored=%d too_old=%d cancelled=%d',
                 $summary['jtl_returned'],
                 $summary['total'],
                 $summary['created'],
@@ -168,7 +169,8 @@ final class OrderSyncService
                 $summary['unmapped'],
                 $summary['requires_review'],
                 $summary['previously_ignored'],
-                $summary['too_old']
+                $summary['too_old'],
+                $summary['cancelled']
             )
         );
 
@@ -298,6 +300,12 @@ final class OrderSyncService
 
         if ($jtlOrderId !== null && $this->mapper()->hasJtlOrder($jtlOrderId)) {
             return 'already_synced';
+        }
+
+        foreach (['IsCancelled', 'isCancelled'] as $key) {
+            if (array_key_exists($key, $order) && filter_var($order[$key], FILTER_VALIDATE_BOOLEAN)) {
+                return 'cancelled';
+            }
         }
 
         if ($this->mappedPackiyoCustomer($order) === null) {

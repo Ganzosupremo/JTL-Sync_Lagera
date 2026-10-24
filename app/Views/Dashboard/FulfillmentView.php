@@ -122,6 +122,7 @@ final class FulfillmentView extends View
                                                     'already_present' => 'Ya presente en JTL',
                                                     'shipped_pending' => 'Tracking enviado; Shipped pendiente',
                                                     'failed' => 'Error enviando a JTL',
+                                                    'jtl_cancelled' => 'Cancelada en JTL (ignorada)',
                                                     default => $fulfillmentStatus ?: '-',
                                                 };
                                             ?>
