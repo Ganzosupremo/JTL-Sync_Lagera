@@ -92,15 +92,21 @@ final class AuthController extends Controller
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Login - Lagera JTL Sync</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <style>
         :root {
             color-scheme: light;
-            --bg: #f6f7f9;
+            --bg: #fef7eb;
             --panel: #ffffff;
-            --text: #1b1f24;
-            --muted: #667085;
-            --line: #d9dee7;
-            --accent: #2563eb;
+            --text: #000000;
+            --muted: #737373;
+            --line: #ece4d6;
+            --line-strong: #ddd3c2;
+            --accent: #5c64cf;
+            --accent-strong: #4a52b8;
+            --accent-soft: #eef0fb;
             --bad: #b42318;
         }
 
@@ -113,7 +119,7 @@ final class AuthController extends Controller
             background: var(--bg);
             color: var(--text);
             display: flex;
-            font-family: Arial, Helvetica, sans-serif;
+            font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
             justify-content: center;
             margin: 0;
             min-height: 100vh;
@@ -124,6 +130,7 @@ final class AuthController extends Controller
             background: var(--panel);
             border: 1px solid var(--line);
             border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.05);
             max-width: 420px;
             padding: 24px;
             width: 100%;
@@ -148,7 +155,7 @@ final class AuthController extends Controller
         }
 
         input {
-            border: 1px solid var(--line);
+            border: 1px solid var(--line-strong);
             border-radius: 6px;
             font: inherit;
             margin-bottom: 14px;
@@ -163,9 +170,20 @@ final class AuthController extends Controller
             border-radius: 6px;
             color: #fff;
             cursor: pointer;
-            font-weight: 700;
+            font-family: inherit;
+            font-weight: 600;
             min-height: 42px;
             width: 100%;
+        }
+
+        button:hover {
+            background: var(--accent-strong);
+        }
+
+        input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+            outline: none;
         }
 
         .error {

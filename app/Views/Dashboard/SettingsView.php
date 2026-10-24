@@ -121,8 +121,8 @@ final class SettingsView extends View
                                         <td><?= $this->e($user['email'] ?? '-') ?></td>
                                         <td><?= ($user['role'] ?? AppUser::ROLE_ADMIN) === AppUser::ROLE_OPERATOR ? 'Operador' : 'Administrador' ?></td>
                                         <td><span class="status <?= ((int) ($user['active'] ?? 0) === 1) ? 'active' : 'inactive' ?>"><?= ((int) ($user['active'] ?? 0) === 1) ? 'active' : 'inactive' ?></span></td>
-                                        <td><?= $this->e($user['last_login_at'] ?? '-') ?></td>
-                                        <td><?= $this->e($user['created_at'] ?? '-') ?></td>
+                                        <td class="mono"><?= $this->e($user['last_login_at'] ?? '-') ?></td>
+                                        <td class="mono"><?= $this->e($user['created_at'] ?? '-') ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -151,8 +151,8 @@ final class SettingsView extends View
                                         <td><?= $this->e($invitation['email'] ?? '-') ?></td>
                                         <td><span class="status <?= $status === 'pending' ? 'ready' : ($status === 'accepted' ? 'synced' : 'inactive') ?>"><?= $this->e($status) ?></span></td>
                                         <td><?= $this->e($invitation['created_by_username'] ?? '-') ?></td>
-                                        <td><?= $this->e($invitation['expires_at'] ?? '-') ?></td>
-                                        <td><?= $this->e($invitation['created_at'] ?? '-') ?></td>
+                                        <td class="mono"><?= $this->e($invitation['expires_at'] ?? '-') ?></td>
+                                        <td class="mono"><?= $this->e($invitation['created_at'] ?? '-') ?></td>
                                         <td>
                                             <?php if ($status === 'pending'): ?>
                                                 <form class="inline-form" action="<?= $this->e($this->url('/users/invite/revoke')) ?>" method="post">

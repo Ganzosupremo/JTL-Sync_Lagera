@@ -98,8 +98,8 @@ final class PackiyoCustomersView extends View
                             <td><strong><?= $this->e($customer['packiyo_customer_id'] ?? '-') ?></strong></td>
                             <td><?= $this->e($this->customerDisplayName($customer)) ?></td>
                             <td><?= $this->e($customer['email'] ?? '-') ?></td>
-                            <td><?= $this->e($customer['packiyo_updated_at'] ?? '-') ?></td>
-                            <td><?= $this->e($customer['synced_at'] ?? '-') ?></td>
+                            <td class="mono"><?= $this->e($customer['packiyo_updated_at'] ?? '-') ?></td>
+                            <td class="mono"><?= $this->e($customer['synced_at'] ?? '-') ?></td>
                             <td><span class="status <?= $active ? 'active' : 'inactive' ?>"><?= $active ? 'active' : 'inactive' ?></span></td>
                             <td>
                                 <form class="inline-form" action="<?= $this->e($this->url($active ? '/packiyo/customers/deactivate' : '/packiyo/customers/activate')) ?>" method="post">

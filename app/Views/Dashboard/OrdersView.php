@@ -33,9 +33,9 @@ final class OrdersView extends View
                         <tbody>
                             <?php foreach ($mappings as $mapping): ?>
                                 <tr>
-                                    <td><?= $this->e($mapping['jtl_order_number'] ?: $mapping['jtl_order_id']) ?></td>
-                                    <td><?= $this->e($mapping['packiyo_order_number'] ?: $mapping['packiyo_order_id']) ?></td>
-                                    <td><?= $this->e($mapping['synced_at']) ?></td>
+                                    <td class="mono"><?= $this->e($mapping['jtl_order_number'] ?: $mapping['jtl_order_id']) ?></td>
+                                    <td class="mono"><?= $this->e($mapping['packiyo_order_number'] ?: $mapping['packiyo_order_id']) ?></td>
+                                    <td class="mono"><?= $this->e($mapping['synced_at']) ?></td>
                                     <td>synced</td>
                                     <td><a class="button secondary small button-link" href="<?= $this->e($this->url('/?') . http_build_query(['tab' => 'jtl-orders', 'order_reference' => $mapping['jtl_order_id']])) ?>">Editar y mapear</a></td>
                                 </tr>

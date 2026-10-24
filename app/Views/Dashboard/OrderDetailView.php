@@ -35,10 +35,10 @@ final class OrderDetailView extends View
                             $catalog = is_array($detail['catalog'] ?? null) ? $detail['catalog'] : [];
                         ?>
                         <div class="details">
-                            <div class="detail"><span>ID JTL</span><strong><?= $this->e($detail['id'] ?? '-') ?></strong></div>
+                            <div class="detail"><span>ID JTL</span><strong class="mono"><?= $this->e($detail['id'] ?? '-') ?></strong></div>
                             <div class="detail"><span>Cliente Packiyo</span><strong><?= $this->e(($detail['customer_name'] ?? '-') . ' #' . ($detail['customer_id'] ?? '-')) ?></strong></div>
                             <div class="detail"><span>Estado</span><strong><span class="status <?= $sent ? 'synced' : (($detail['errors'] ?? []) === [] ? 'ready' : 'missing_config') ?>"><?= $sent ? 'enviada' : (($detail['errors'] ?? []) === [] ? 'lista' : 'requiere_revision') ?></span></strong></div>
-                            <div class="detail"><span>Borrador</span><strong><?= $this->e($detail['draft']['updated_at'] ?? 'sin guardar') ?></strong></div>
+                            <div class="detail"><span>Borrador</span><strong class="mono"><?= $this->e($detail['draft']['updated_at'] ?? 'sin guardar') ?></strong></div>
                         </div>
                         <?php if ($sent): ?>
                             <div class="notice">Esta orden ya fue enviada a Packiyo, pero puedes editar su borrador local para probar o corregir el mapeo. Estos cambios no modifican la orden que ya existe en Packiyo.</div>
