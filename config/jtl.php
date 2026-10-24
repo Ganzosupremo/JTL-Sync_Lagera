@@ -40,7 +40,7 @@ return [
     'order_items_endpoint' => Setting::get('JTL_ORDER_ITEMS_ENDPOINT', '/api/eazybusiness/salesOrders/{id}/lineItems'),
     'delivery_notes_endpoint' => Setting::get('JTL_DELIVERY_NOTES_ENDPOINT', '/api/eazybusiness/deliveryNotes'),
     'delivery_note_packages_endpoint' => Setting::get('JTL_DELIVERY_NOTE_PACKAGES_ENDPOINT', '/api/eazybusiness/deliveryNotes/{id}/packages'),
-    'delivery_note_workflow_trigger_endpoint' => Setting::get('JTL_DELIVERY_NOTE_WORKFLOW_TRIGGER_ENDPOINT', '/api/eazybusiness/deliveryNotes/{id}/workflow/{workflowEventId}'),
+    'delivery_note_workflow_trigger_endpoint' => Setting::get('JTL_DELIVERY_NOTE_WORKFLOW_TRIGGER_ENDPOINT', '/api/eazybusiness/v1/deliveryNotes/{id}/workflow/{workflowEventId}'),
     'mark_delivery_note_shipped' => Setting::get('JTL_MARK_DELIVERY_NOTE_SHIPPED', true),
     'auto_create_delivery_note' => Setting::get('JTL_AUTO_CREATE_DELIVERY_NOTE', false),
     'delivery_note_workflow_event_id' => Setting::get('JTL_DELIVERY_NOTE_WORKFLOW_EVENT_ID', ''),
