@@ -34,6 +34,14 @@ final class PackiyoClient
         ]);
     }
 
+    /** @param array<string, mixed> $payload */
+    public function updateOrder(string $id, array $payload): array
+    {
+        return $this->http->request('PATCH', $this->endpoint('order_endpoint', $id), [
+            'json' => $payload,
+        ]);
+    }
+
     public function getOrder(string $id): array
     {
         return $this->http->get($this->endpoint('order_endpoint', $id));

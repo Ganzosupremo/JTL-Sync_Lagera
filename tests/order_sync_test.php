@@ -6,15 +6,17 @@ require __DIR__ . '/support/bootstrap.php';
 
 use App\Clients\JtlClient;
 use App\Clients\PackiyoClient;
+use App\Models\OrderDraft;
 use App\Models\OrderMapping;
 use App\Models\OrderSyncFailure;
 use App\Models\PackiyoCustomerMapping;
 use App\Services\OrderSyncService;
+use App\Services\ShippingAddressRepairService;
 use App\Support\Config;
 use App\Support\HttpException;
 use App\Support\SyncLock;
 
-requireTestDatabase();
+$db = requireTestDatabase();
 useSettings([
     'JTL_ORDERS_ENDPOINT' => '/salesOrders',
     'PACKIYO_ORDERS_ENDPOINT' => '/orders',
@@ -36,7 +38,7 @@ function jtlOrder(string $id): array
         'Id' => $id,
         'SalesOrderNumber' => 'AU-' . $id,
         'customer' => ['email' => 'ada@example.com'],
-        'ShippingAddress' => ['FirstName' => 'Ada', 'LastName' => 'Lovelace', 'City' => 'Berlin', 'CountryIso' => 'DE'],
+        'ShippingAddress' => ['FirstName' => 'Ada', 'LastName' => 'Lovelace', 'Street' => 'Main St 1', 'PostalCode' => '10115', 'City' => 'Berlin', 'CountryIso' => 'DE'],
         'Items' => [['Id' => $id . '-line-1', 'SKU' => 'SKU-1', 'Name' => 'Widget', 'Quantity' => 1, 'SalesPriceGross' => 10]],
     ];
 }
@@ -183,5 +185,60 @@ $summary = (new OrderSyncService(new JtlClient($jtlHttp), new PackiyoClient($pac
 
 assertSame(1, $summary['created'], 'El resync forzado debe crear la orden de nuevo.');
 assertSame('pk-6b', $mappings->findByJtlOrderId('6')['packiyo_order_id'] ?? null, 'El resync forzado debe reemplazar el mapping.');
+
+// 10. A Kaufland order whose address JTL does not have yet (only the anonymized email) waits.
+$withoutAddress = jtlOrder('7');
+$withoutAddress['ShippingAddress'] = ['EmailAddress' => 'ca-1@kaufland-marktplatz.de'];
+$withoutAddress['BillingAddress'] = ['EmailAddress' => 'ca-1@kaufland-marktplatz.de'];
+$packiyo = (new FakeHttpClient())->on('GET', '/orders', $notFound);
+$summary = syncService([$withoutAddress], $packiyo)->sync(null, null, true);
+
+assertSame(1, $summary['awaiting_address'], 'Una orden sin direccion debe esperar.');
+assertSame(0, $summary['failed'], 'Esperar la direccion no es un fallo.');
+assertSame([], $packiyo->requestsTo('POST', '/orders'), 'Una orden sin direccion no debe crearse en Packiyo.');
+assertSame(null, $mappings->findByJtlOrderId('7'), 'Una orden sin direccion no debe quedar mapeada.');
+
+// 10b. The next run, once JTL has the address, sends it with that address.
+$packiyo = (new FakeHttpClient())
+    ->on('GET', '/orders', $notFound)
+    ->on('POST', '/orders', ['data' => ['type' => 'orders', 'id' => 'pk-7']]);
+$summary = syncService([jtlOrder('7')], $packiyo)->sync(null, null, true);
+
+assertSame(1, $summary['created'], 'Con direccion la orden debe enviarse en la siguiente corrida.');
+$contact = $packiyo->requestsTo('POST', '/orders')[0]['json']['data']['attributes']['shipping_contact_information_data'] ?? [];
+assertSame('Ada Lovelace', $contact['name'] ?? null, 'El nombre de envio debe venir de JTL.');
+assertSame('Main St 1', $contact['address'] ?? null, 'La calle debe venir de JTL.');
+assertSame('10115', $contact['zip'] ?? null, 'El codigo postal debe venir de JTL.');
+
+// 11. A draft saved before the address arrived does not hide the address JTL has now.
+(new OrderDraft())->save('8', 'AU-8', '42', ['order' => []], [
+    'shipping_address' => ['EmailAddress' => 'ca-2@kaufland-marktplatz.de'],
+    'billing_address' => ['EmailAddress' => 'ca-2@kaufland-marktplatz.de'],
+    'items' => [['external_id' => '8-line-1', 'name' => 'Widget', 'sku' => 'SKU-1', 'quantity' => 1, 'price' => 10]],
+    'shipping' => 0,
+]);
+$packiyo = (new FakeHttpClient())
+    ->on('GET', '/orders', $notFound)
+    ->on('POST', '/orders', ['data' => ['type' => 'orders', 'id' => 'pk-8']]);
+$summary = syncService([jtlOrder('8')], $packiyo)->sync();
+
+assertSame(1, $summary['created'], 'La orden con borrador viejo debe enviarse.');
+assertSame('Main St 1', $packiyo->requestsTo('POST', '/orders')[0]['json']['data']['attributes']['shipping_contact_information_data']['address'] ?? null, 'La direccion en vivo de JTL debe ganarle al borrador sin direccion.');
+
+// 12. Orders already sent without an address get it written to Packiyo once JTL has it.
+$db->query("UPDATE jtl_order_drafts SET sent_payload_json = JSON_SET(sent_payload_json, '$.data.attributes.shipping_contact_information_data.address', '') WHERE jtl_order_id = '8'");
+$jtlHttp = (new FakeHttpClient())->on('GET', '/api/eazybusiness/salesOrders/8', jtlOrder('8'));
+$packiyo = (new FakeHttpClient())->on('PATCH', '/orders/pk-8', ['data' => ['type' => 'orders', 'id' => 'pk-8']]);
+$repair = new ShippingAddressRepairService(new JtlClient($jtlHttp), new PackiyoClient($packiyo));
+
+$preview = $repair->repair(false);
+assertSame(1, $preview['revisadas'], 'La vista previa debe encontrar la orden sin direccion.');
+assertSame([], $packiyo->requests, 'La vista previa no debe escribir en Packiyo.');
+
+$result = $repair->repair(true);
+assertSame(1, $result['corregidas'], 'La orden debe corregirse.');
+$patch = $packiyo->requestsTo('PATCH', '/orders/pk-8')[0]['json']['data'] ?? [];
+assertSame('Main St 1', $patch['attributes']['shipping_contact_information_data']['address'] ?? null, 'El PATCH debe llevar la calle.');
+assertSame(0, $repair->repair(false)['revisadas'], 'Una orden corregida no debe volver a aparecer.');
 
 echo "order_sync_test: OK\n";
