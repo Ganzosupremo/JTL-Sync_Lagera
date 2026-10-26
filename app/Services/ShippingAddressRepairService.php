@@ -68,7 +68,7 @@ final class ShippingAddressRepairService
                     'data' => [
                         'type' => 'orders',
                         'id' => $packiyoOrderId,
-                        'attributes' => $contact,
+                        'attributes' => $contact + $this->shippingMethodAttributes($packiyoOrderId),
                     ],
                 ]);
                 $this->drafts()->updateSentAddresses(
@@ -88,6 +88,31 @@ final class ShippingAddressRepairService
         }
 
         return $summary;
+    }
+
+    /**
+     * Packiyo rejects an order PATCH without a shipping method (422 "The shipping method name field
+     * is required when shipping method id is not present"), so the current one is sent back.
+     *
+     * @return array<string, string>
+     */
+    private function shippingMethodAttributes(string $packiyoOrderId): array
+    {
+        $attributes = $this->unwrap($this->packiyo()->getOrder($packiyoOrderId));
+        $attributes = is_array($attributes['attributes'] ?? null) ? $attributes['attributes'] : $attributes;
+
+        foreach (['shipping_method_id', 'shippingMethodId'] as $key) {
+            if (isset($attributes[$key]) && is_scalar($attributes[$key]) && trim((string) $attributes[$key]) !== '') {
+                return [];
+            }
+        }
+        foreach (['shipping_method_name', 'shippingMethodName'] as $key) {
+            if (isset($attributes[$key]) && is_scalar($attributes[$key]) && trim((string) $attributes[$key]) !== '') {
+                return ['shipping_method_name' => trim((string) $attributes[$key])];
+            }
+        }
+
+        return ['shipping_method_name' => 'Generic'];
     }
 
     /** @param array<string, mixed> $response @return array<string, mixed> */
