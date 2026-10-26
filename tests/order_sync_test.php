@@ -228,7 +228,9 @@ assertSame('Main St 1', $packiyo->requestsTo('POST', '/orders')[0]['json']['data
 // 12. Orders already sent without an address get it written to Packiyo once JTL has it.
 $db->query("UPDATE jtl_order_drafts SET sent_payload_json = JSON_SET(sent_payload_json, '$.data.attributes.shipping_contact_information_data.address', '') WHERE jtl_order_id = '8'");
 $jtlHttp = (new FakeHttpClient())->on('GET', '/api/eazybusiness/salesOrders/8', jtlOrder('8'));
-$packiyo = (new FakeHttpClient())->on('PATCH', '/orders/pk-8', ['data' => ['type' => 'orders', 'id' => 'pk-8']]);
+$packiyo = (new FakeHttpClient())
+    ->on('GET', '/orders/pk-8', ['data' => ['type' => 'orders', 'id' => 'pk-8', 'attributes' => ['number' => 'AU-8']]])
+    ->on('PATCH', '/orders/pk-8', ['data' => ['type' => 'orders', 'id' => 'pk-8']]);
 $repair = new ShippingAddressRepairService(new JtlClient($jtlHttp), new PackiyoClient($packiyo));
 
 $preview = $repair->repair(false);
@@ -239,6 +241,7 @@ $result = $repair->repair(true);
 assertSame(1, $result['corregidas'], 'La orden debe corregirse.');
 $patch = $packiyo->requestsTo('PATCH', '/orders/pk-8')[0]['json']['data'] ?? [];
 assertSame('Main St 1', $patch['attributes']['shipping_contact_information_data']['address'] ?? null, 'El PATCH debe llevar la calle.');
+assertSame('Generic', $patch['attributes']['shipping_method_name'] ?? null, 'Packiyo exige un metodo de envio en el PATCH.');
 assertSame(0, $repair->repair(false)['revisadas'], 'Una orden corregida no debe volver a aparecer.');
 
 echo "order_sync_test: OK\n";
