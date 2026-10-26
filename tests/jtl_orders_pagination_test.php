@@ -60,6 +60,7 @@ assertSame(3, count($orders), 'Las ordenes leidas hasta el limite deben devolver
 $order = static fn (string $id, string $date): array => [
     'Id' => $id,
     'SalesOrderDate' => $date,
+    'Shipmentaddress' => ['FirstName' => 'Ada', 'Street' => 'Main St 1', 'PostalCode' => '10115', 'City' => 'Berlin', 'CountryIso' => 'DE'],
     'Items' => [['Id' => $id . '-1', 'SKU' => 'SKU-1', 'Name' => 'Widget', 'Quantity' => 1, 'SalesPriceGross' => 10]],
 ];
 $jtlHttp = (new FakeHttpClient())->on('GET', '/salesOrders', ['Data' => [

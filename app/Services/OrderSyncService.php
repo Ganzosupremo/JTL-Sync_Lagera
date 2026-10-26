@@ -76,6 +76,7 @@ final class OrderSyncService
             'previously_ignored' => 0,
             'too_old' => 0,
             'cancelled' => 0,
+            'awaiting_address' => 0,
             'jtl_unreachable' => false,
             'locked' => false,
             'message' => '',
@@ -143,6 +144,11 @@ final class OrderSyncService
             } catch (InactivePackiyoCustomerException $exception) {
                 $summary['skipped']++;
                 $this->log()->info('order_sync', $exception->getMessage());
+            } catch (OrderAwaitingAddressException $exception) {
+                // Not remembered as an automation skip: the next run must look at it again.
+                $summary['skipped']++;
+                $summary['awaiting_address']++;
+                $this->log()->info('order_sync', $exception->getMessage());
             } catch (OrderRequiresReviewException $exception) {
                 $summary['skipped']++;
                 $summary['requires_review']++;
@@ -158,7 +164,7 @@ final class OrderSyncService
         $this->log()->info(
             'order_sync',
             $summary['message'] = sprintf(
-                'Order sync finished. jtl_returned=%d total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d requires_review=%d previously_ignored=%d too_old=%d cancelled=%d',
+                'Order sync finished. jtl_returned=%d total=%d created=%d linked=%d skipped=%d failed=%d already_synced=%d unmapped=%d requires_review=%d previously_ignored=%d too_old=%d cancelled=%d awaiting_address=%d',
                 $summary['jtl_returned'],
                 $summary['total'],
                 $summary['created'],
@@ -170,7 +176,8 @@ final class OrderSyncService
                 $summary['requires_review'],
                 $summary['previously_ignored'],
                 $summary['too_old'],
-                $summary['cancelled']
+                $summary['cancelled'],
+                $summary['awaiting_address']
             )
         );
 
@@ -413,6 +420,10 @@ final class OrderSyncService
             $summary['skipped'] = 1;
             $summary['message'] = $exception->getMessage();
             $this->log()->info('order_sync', $exception->getMessage());
+        } catch (OrderAwaitingAddressException $exception) {
+            $summary['skipped'] = 1;
+            $summary['message'] = $exception->getMessage();
+            $this->log()->info('order_sync', $exception->getMessage());
         } catch (OrderRequiresReviewException $exception) {
             $summary['skipped'] = 1;
             $summary['message'] = $exception->getMessage();
@@ -474,6 +485,13 @@ final class OrderSyncService
         }
 
         $orderForPayload = $this->applyPreparedData($order, $preparedData);
+
+        if (!$this->mapper()->hasShippingAddress($orderForPayload)) {
+            throw new OrderAwaitingAddressException(
+                'La orden JTL ' . $this->orderLabel($order) . ' todavia no tiene direccion de envio en JTL'
+                . ' (Kaufland y otros marketplaces la mandan cuando se confirma el pago). Se enviara cuando llegue.'
+            );
+        }
         $externalIdOverride = null;
         $numberOverride = null;
         $lineItemExternalIdSuffix = null;
@@ -545,6 +563,8 @@ final class OrderSyncService
         $this->saveMapping($jtlOrderId, $mappingData, $replaceExistingMapping);
         $this->failureModel()->clear($jtlOrderId);
 
+        $preparedData['shipping_address'] = $this->mapper()->shippingAddress($orderForPayload);
+        $preparedData['billing_address'] = $this->mapper()->billingAddress($orderForPayload);
         $this->draftModel()->markSent(
             $jtlOrderId,
             $this->mapper()->jtlOrderNumber($order),
@@ -911,11 +931,16 @@ final class OrderSyncService
     /** @param array<string, mixed> $order @param array<string, mixed> $data @return array<string, mixed> */
     private function applyPreparedData(array $order, array $data): array
     {
-        if (is_array($data['shipping_address'] ?? null)) {
-            $order['shipping_address'] = $data['shipping_address'];
-        }
-        if (is_array($data['billing_address'] ?? null)) {
-            $order['billing_address'] = $data['billing_address'];
+        // A draft saved before the marketplace sent the address holds an address with only an email;
+        // the live JTL address wins over it.
+        $mapper = $this->mapper();
+        foreach (['shipping_address' => $mapper->shippingAddress($order), 'billing_address' => $mapper->billingAddress($order)] as $key => $liveAddress) {
+            $draftAddress = $data[$key] ?? null;
+            if (is_array($draftAddress) && ($mapper->isCompleteAddress($draftAddress) || !$mapper->isCompleteAddress($liveAddress))) {
+                $order[$key] = $draftAddress;
+            } elseif ($liveAddress !== []) {
+                $order[$key] = $liveAddress;
+            }
         }
         if (is_numeric($data['shipping'] ?? null)) {
             $order['shipping'] = (float) $data['shipping'];
@@ -1016,5 +1041,9 @@ final class OrderAlreadySyncedException extends RuntimeException
 }
 
 final class OrderRequiresReviewException extends RuntimeException
+{
+}
+
+final class OrderAwaitingAddressException extends RuntimeException
 {
 }

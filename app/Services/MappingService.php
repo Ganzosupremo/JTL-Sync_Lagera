@@ -91,14 +91,7 @@ final class MappingService
             'shipping' => $this->shippingAmount($order, $items),
             'tax' => (float) ($this->firstValue($order, ['tax', 'Tax', 'taxAmount', 'TaxAmount']) ?? 0),
             'discount' => (float) ($this->firstValue($order, ['discount', 'Discount', 'discountAmount', 'DiscountAmount']) ?? 0),
-            'shipping_contact_information_data' => $this->packiyoContact(
-                $this->firstArray($order, ['shipping_address', 'shippingAddress', 'ShippingAddress', 'deliveryAddress', 'DeliveryAddress', 'Shipmentaddress', 'ShipmentAddress', 'shipmentAddress']),
-                $this->normalizeCustomer($order)
-            ),
-            'billing_contact_information_data' => $this->packiyoContact(
-                $this->firstArray($order, ['billing_address', 'billingAddress', 'BillingAddress', 'invoiceAddress', 'InvoiceAddress']),
-                $this->normalizeCustomer($order)
-            ),
+            ...$this->packiyoContactAttributes($order),
             'order_item_data' => $lineItems,
             'tags' => 'jtl',
         ];
@@ -412,6 +405,55 @@ final class MappingService
         $name = strtolower((string) ($this->firstValue($item, ['Name', 'name', 'title', 'Title']) ?? ''));
 
         return str_contains($name, 'versand') || str_contains($name, 'shipping');
+    }
+
+    /**
+     * The shipping and billing contact attributes of a Packiyo order, also used to fix the address
+     * of an order that is already in Packiyo.
+     *
+     * @param array<string, mixed> $order
+     * @return array{shipping_contact_information_data: array<string, string>, billing_contact_information_data: array<string, string>}
+     */
+    public function packiyoContactAttributes(array $order): array
+    {
+        $customer = $this->normalizeCustomer($order);
+
+        return [
+            'shipping_contact_information_data' => $this->packiyoContact($this->shippingAddress($order), $customer),
+            'billing_contact_information_data' => $this->packiyoContact($this->billingAddress($order), $customer),
+        ];
+    }
+
+    /**
+     * Marketplaces like Kaufland hand JTL only an anonymized email until the order is paid; the
+     * street, zip and city arrive later. Such an order must not reach Packiyo yet.
+     *
+     * @param array<string, mixed> $order
+     */
+    public function hasShippingAddress(array $order): bool
+    {
+        return $this->isCompleteAddress($this->shippingAddress($order));
+    }
+
+    /** @param array<string, mixed> $address */
+    public function isCompleteAddress(array $address): bool
+    {
+        $normalized = $this->normalizeAddress($address);
+
+        return ($normalized['address1'] ?? null) !== null
+            && (($normalized['postal_code'] ?? null) !== null || ($normalized['city'] ?? null) !== null);
+    }
+
+    /** @param array<string, mixed> $order @return array<string, mixed> */
+    public function shippingAddress(array $order): array
+    {
+        return $this->firstArray($order, ['shipping_address', 'shippingAddress', 'ShippingAddress', 'deliveryAddress', 'DeliveryAddress', 'Shipmentaddress', 'ShipmentAddress', 'shipmentAddress']);
+    }
+
+    /** @param array<string, mixed> $order @return array<string, mixed> */
+    public function billingAddress(array $order): array
+    {
+        return $this->firstArray($order, ['billing_address', 'billingAddress', 'BillingAddress', 'invoiceAddress', 'InvoiceAddress']);
     }
 
     /** @param array<string, mixed> $customer */

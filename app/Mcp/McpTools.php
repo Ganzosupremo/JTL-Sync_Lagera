@@ -15,6 +15,7 @@ use App\Services\AutomationService;
 use App\Services\FulfillmentSyncService;
 use App\Services\OrderDetailService;
 use App\Services\OrderSyncService;
+use App\Services\ShippingAddressRepairService;
 use App\Support\Logger;
 use App\Support\Setting;
 use Closure;
@@ -193,6 +194,14 @@ final class McpTools
 
             return (new FulfillmentSyncService())->sync($max, $this->stringArg($args, 'cliente_packiyo'));
         });
+
+        $this->write('corregir_direcciones', 'Busca ordenes que llegaron a Packiyo sin direccion de envio ("Unknown") y les pone la direccion que JTL tiene ahora. Con aplicar=false (por defecto) solo muestra que cambiaria.', [
+            'aplicar' => ['type' => 'boolean', 'description' => 'Escribir la direccion en Packiyo (por defecto false: solo vista previa).'],
+            'limite' => $limit,
+        ], fn (array $args): array => (new ShippingAddressRepairService())->repair(
+            ($args['aplicar'] ?? false) === true,
+            $this->limitArg($args)
+        ));
 
         $this->write('ejecutar_automatizacion', 'Corre el ciclo completo del cron ahora: clientes (si esta activado), ordenes y fulfillment.', [], fn (): array => (new AutomationService())->run());
 
